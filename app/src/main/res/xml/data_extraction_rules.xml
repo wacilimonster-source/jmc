@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ 备份/迁移排除规则：
+     加密凭据依赖 AndroidKeyStore 密钥（不参与备份），还原到新设备必然解密失败被静默清除，
+     明文邮箱与崩溃日志也不应随云端备份/换机迁移外流，故整体排除。
+     pika_prefs DataStore 内存有哔咔/JM 的 token、明文邮箱与设备 uuid，同样不得外流；
+     还原后源设置回到默认并提示重新登录，属预期行为 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="pika_secure_account.xml" />
+        <exclude domain="file" path="datastore/pika_prefs.preferences_pb" />
+        <exclude domain="file" path="crash" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="pika_secure_account.xml" />
+        <exclude domain="file" path="datastore/pika_prefs.preferences_pb" />
+        <exclude domain="file" path="crash" />
+    </device-transfer>
+</data-extraction-rules>

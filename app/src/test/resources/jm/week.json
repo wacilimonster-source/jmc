@@ -1,0 +1,11 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "categories": [
+      { "id": "1", "time": "第257期", "title": "" },
+      { "id": "2", "time": "第256期", "title": "" },
+      { "id": "3", "time": "第255期", "title": "" }
+    ]
+  }
+}

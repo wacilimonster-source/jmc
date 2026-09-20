@@ -1,0 +1,22 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "content": [
+      {
+        "id": "1474353",
+        "name": "搜索结果甲",
+        "author": "作者丙",
+        "image": "",
+        "category": { "id": "4", "title": "韓漫" },
+        "category_sub": { "id": "0", "title": "" },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1726790400,
+        "adddate": "2026-09-01",
+        "description": "这是搜索结果额外返回的简介"
+      }
+    ],
+    "total": 721
+  }
+}

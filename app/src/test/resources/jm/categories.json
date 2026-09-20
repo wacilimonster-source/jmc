@@ -1,0 +1,29 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "categories": [
+      {
+        "id": "1",
+        "name": "同人志",
+        "slug": "doujin",
+        "total_albums": 349441,
+        "sub_categories": [
+          { "name": "漢化", "slug": "doujin-chinese" },
+          { "name": "日語", "slug": "doujin-japanese" }
+        ]
+      },
+      {
+        "id": "2",
+        "name": "單行本",
+        "slug": "single",
+        "total_albums": 98765,
+        "sub_categories": []
+      }
+    ],
+    "blocks": [
+      { "title": "熱門標籤", "content": ["調教", "禁漫漢化組", "胃疼"] },
+      { "title": "角色", "content": ["標籤4", "標籤5", "標籤6"] }
+    ]
+  }
+}

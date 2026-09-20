@@ -1,0 +1,34 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "id": 441295,
+    "name": "多作者测试本",
+    "author": ["美娜讚", "鋼鐵王", "NTR"],
+    "description": "多作者协作详情",
+    "images": [],
+    "addtime": "2026-08-28",
+    "total_views": "74821127",
+    "total_photos": 120,
+    "likes": "12345",
+    "comment_total": "67",
+    "series": [
+      { "id": "552001", "name": "第1话", "sort": "1" },
+      { "id": "552002", "name": "", "sort": "3" },
+      { "id": "552003", "name": "第2话", "sort": "2" }
+    ],
+    "series_id": "550000",
+    "tags": ["標籤A", "標籤B"],
+    "works": ["原作X"],
+    "actors": ["角色Y"],
+    "price": "",
+    "purchased": "",
+    "is_aids": false,
+    "is_favorite": true,
+    "liked": false,
+    "related_list": [
+      { "id": "441300", "name": "相关本1", "author": "作者甲" },
+      { "id": "441301", "name": "相关本2", "author": "作者乙" }
+    ]
+  }
+}

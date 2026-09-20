@@ -1,0 +1,71 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "list": [
+      {
+        "CID": "881001",
+        "AID": "441295",
+        "parent_CID": "0",
+        "username": "user_a",
+        "nickname": "评论者甲",
+        "content": "<p>正常评论 <a href='https://example.com'>链接</a>内容</p>",
+        "addtime": "2026-09-01 12:00:00",
+        "likes": "12",
+        "photo": "https://example.com/avatar_a.jpg",
+        "spoiler": "0",
+        "expinfo": {
+          "level_name": "Lv.12",
+          "level": 12,
+          "exp": "3456",
+          "badges": ["badge1"]
+        },
+        "replys": [
+          {
+            "CID": "881002",
+            "AID": "441295",
+            "parent_CID": "881001",
+            "username": "user_b",
+            "nickname": "评论者乙",
+            "content": "子评论内容",
+            "addtime": "2026-09-01 13:00:00",
+            "likes": "3",
+            "photo": "",
+            "spoiler": "0",
+            "expinfo": { "level_name": "Lv.3", "level": 3, "exp": "120", "badges": [] },
+            "replys": []
+          }
+        ]
+      },
+      {
+        "CID": "881003",
+        "AID": "441295",
+        "parent_CID": "0",
+        "username": "spammer",
+        "nickname": "广告哥",
+        "content": "破解版资源 请加网盘 https://pan.example.com/share",
+        "addtime": "2026-09-02 09:00:00",
+        "likes": "0",
+        "photo": "",
+        "spoiler": "0",
+        "expinfo": { "level_name": "Lv.1", "level": 1, "exp": "10", "badges": [] },
+        "replys": []
+      },
+      {
+        "CID": "881004",
+        "AID": "441295",
+        "parent_CID": "0",
+        "username": "user_c",
+        "nickname": "剧透怪",
+        "content": "最后女主挂了",
+        "addtime": "2026-09-03 10:00:00",
+        "likes": "5",
+        "photo": "",
+        "spoiler": "1",
+        "expinfo": { "level_name": "Lv.7", "level": 7, "exp": "800", "badges": [] },
+        "replys": []
+      }
+    ],
+    "total": 3
+  }
+}

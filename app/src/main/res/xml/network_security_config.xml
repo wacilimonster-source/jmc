@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 默认禁用明文 HTTP：应用内所有请求均使用 HTTPS（哔咔 API / 禁漫 API / 图片 CDN） -->
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!-- 禁漫图片 CDN：镜像域名由服务端 /setting 动态下发，个别镜像可能回落 HTTP，
+         仅对这些已知 CDN 主机放行明文，避免整包放开。 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">jmapiproxy1.cc</domain>
+        <domain includeSubdomains="true">jmapiproxy2.cc</domain>
+        <domain includeSubdomains="true">jmapinodeudzn.net</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,12 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "base_url": "https://www.cdngwc.cc",
+    "cn_base_url": "https://www.cdngwc.cc",
+    "main_web_host": "18comic.vip",
+    "img_host": "cdn-msp12.jmdanjonproxy.xyz",
+    "app_shunts": ["圖源1", "圖源2", "圖源3", "圖源4"],
+    "jm3_version": "2.1.8"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "id": "552001",
+    "images": ["00001.webp", "00002.webp", "00003.webp", "00004.webp"]
+  }
+}
