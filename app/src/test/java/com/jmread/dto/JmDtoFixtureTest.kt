@@ -36,13 +36,37 @@ class JmDtoFixtureTest {
     fun `list - category 是对象而非字符串`() {
         val resp = json.decodeFromString(JmListResponse.serializer(), fixture("list"))
         val item = resp.data.content.first()
-        assertEquals("同人志", item.category.title)
-        assertEquals("漢化", item.categorySub.title)
+        assertEquals("同人志", item.category.titleText)
+        assertEquals("漢化", item.categorySub.titleText)
         assertEquals("441295", item.id)
         assertEquals(10000, resp.data.total) // 浏览流哨兵值
         // 第二条：is_favorite 与 liked 可解
         assertTrue(resp.data.content[1].isFavorite)
         assertTrue(resp.data.content[1].liked)
+    }
+
+    /**
+     * 2026-09-21 线上实测：浏览流 23 条、搜索 20 条的 category_sub 都是 `{id:null,title:null}`。
+     *
+     * 这条必须用内联 JSON 而不是 fixture —— 手写 fixture 里没有 null，
+     * 盖不住这个形态。此前 JmNamedItem 按非空 String 声明，能跑通完全依赖
+     * `coerceInputValues = true` 把 null 强转成默认值，等于让掉了 ADR-6 的防线。
+     */
+    @Test
+    fun `list - category_sub 为 null 时可解且回退空串`() {
+        val raw = """
+            {"code":200,"errorMsg":"","data":{"total":10000,"content":[
+              {"id":"646603","name":"x","author":"a","image":"",
+               "category":{"id":"5","title":"韩漫"},
+               "category_sub":{"id":null,"title":null},
+               "liked":false,"is_favorite":false,"update_at":1789918565,"adddate":"2024-10-08"}
+            ]}}
+        """.trimIndent()
+        val resp = json.decodeFromString(JmListResponse.serializer(), raw)
+        val item = resp.data.content.first()
+        assertEquals("韩漫", item.category.titleText)
+        assertEquals("", item.categorySub.titleText)
+        assertEquals("", item.categorySub.idText)
     }
 
     @Test

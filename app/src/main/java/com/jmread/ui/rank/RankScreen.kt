@@ -36,6 +36,9 @@ import kotlinx.coroutines.launch
 
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
+/** 默认档位 = 月榜：日榜(mv_t)/周榜(mv_w) 2026-09-21 实测线上返回空，理由见 HomeViewModel._rankType */
+private const val DEFAULT_RANK_TYPE = "D30"
+
 /** 排行榜：日榜 / 周榜 / 月榜（H24 / D7 / D30） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,7 +47,7 @@ fun RankScreen(
     onComicClick: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    var type by remember { mutableStateOf("H24") }
+    var type by remember { mutableStateOf(DEFAULT_RANK_TYPE) }
     var comics by remember { mutableStateOf<List<ComicSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -110,6 +113,24 @@ fun RankScreen(
                         text = error ?: "",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            } else if (comics.isEmpty() && !loading) {
+                // ComicGridView 自身没有空态处理，不拦这一层的话空列表会渲染成纯白区域。
+                // 日榜/周榜在 2026-09-21 线上就是返回空（见 HomeViewModel._rankType）。
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "该档位暂无数据",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "可切换上方其它档位",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             } else {
                 ComicGridView(

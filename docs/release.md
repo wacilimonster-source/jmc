@@ -12,12 +12,13 @@
 | release 构建配置 | ✅ 已有（`app/build.gradle.kts`：minify + shrinkResources + 签名可环境变量覆盖） |
 | `gbuild.sh` 构建脚本 | ✅ 已有 |
 | 更新检查代码 | ✅ 已有（`core/update/UpdateManager.kt` + `ui/update/UpdateDialog.kt` + FileProvider） |
-| **`update.json`** | ❌ **缺失** —— UpdateManager 已实现但没有任何数据源 |
-| **更新仓库 / update.json 托管地址** | ❌ **缺失** —— 需新建仓库并确定 URL |
+| `update.json` | ✅ 已建立（`wacilimonster-source/jmc`） |
+| 更新仓库 | ✅ `git@github.com:wacilimonster-source/jmc.git`（origin） |
 | 真机验收 checklist | ❌ 未执行（产品设计 §8，v1.0 的唯一完成定义） |
 
-**发布链路目前是断的**：`UpdateManager` 会去拉一个还不存在的 `update.json`，
-用户点「检查更新」只会得到网络错误提示。
+> **注意**：首版 `update.json` 的 `version` 与 App 的 `versionName` 同为 `0.1.0`，
+> `isNewer("0.1.0", "0.1.0")` 为 false，因此现有用户点「检查更新」会得到「已是最新」，
+> 不会触发下载。等真正发下一个版本时再改 `version` 并替换 APK 与 sha256。
 
 ---
 
@@ -53,7 +54,7 @@ node tools/jm-shape-probe.mjs
 {
   "sha256": "<gbuild.sh 打印的 sha256>",
   "version": "0.1.0",
-  "apkUrl": "https://raw.githubusercontent.com/<owner>/<repo>/main/jm-reader-v0.1.0.apk",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.1.0.apk",
   "notes": "v0.1.0 更新：\n1. …\n2. …"
 }
 ```
@@ -73,15 +74,23 @@ node tools/jm-shape-probe.mjs
 
 ---
 
-## 3. 待你确认的信息
+## 3. 仓库与地址（已确定）
 
-`update.json` 的 `apkUrl` 需要一个真实的仓库地址，目前还不存在。参照 PiKA 的形态
-（`raw.githubusercontent.com/wacilimonster-source/pika/main/…`），需要确认：
+| 项 | 值 |
+|---|---|
+| 代码仓库 | `git@github.com:wacilimonster-source/jmc.git`（remote: origin） |
+| update.json 地址 | `https://raw.githubusercontent.com/wacilimonster-source/jmc/main/update.json` |
+| APK 直链格式 | `https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v{版本号}.apk` |
+| 对应代码常量 | `core/update/UpdateManager.kt` 的 `UPDATE_URL` |
 
-- **仓库名**：`JM` / `jm-reader` / 其它？
-- **仓库可见性**：公开（raw 直链才能匿名访问，应用内更新无需 token）还是私有？
+> **2026-09-21 修掉的一个串台问题**：`UPDATE_URL` 此前指向
+> `wacilimonster-source/pika`，导致 JM 会读到 PiKA 的 update.json
+> （version 1.6.0 > JM 的 0.1.0），提示用户「发现新版本」并下载安装 **PiKA 的 APK**，
+> 而且 sha256 校验也会通过（校验的就是 PiKA 那个包）。
+> 产品设计 §2 要求的「独立仓库、独立 update.json」当时漏了实现。
 
-确认后即可生成 `update.json` 并把 `UpdateManager` 里的 `UPDATE_URL` 指向它。
+APK 必须提交到仓库根目录才能被 raw 直链访问（PiKA 也是这个做法）。
+`gbuild.sh release` 会自动产出这个文件名的 APK。
 
 ---
 

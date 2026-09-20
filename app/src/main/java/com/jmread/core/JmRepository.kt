@@ -342,7 +342,7 @@ object JmRepository {
         coverUrl = JmCrypto.coverUrl(id),
         isFavourite = isFavorite,
         updatedAt = if (adddate.isNotBlank()) adddate else formatDate(updateAt),
-        categoryName = category.title,
+        categoryName = category.titleText,
     )
 
     private fun com.jmread.network.JmForumComment.toComment(): ComicComment {

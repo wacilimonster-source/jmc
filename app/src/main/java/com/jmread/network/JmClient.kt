@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -143,6 +144,17 @@ object JmClient {
     /** 把加密的 data 字段解密后替换回原 JSON，再返回完整可解析文本 */
     private fun decryptEnvelope(text: String, ts: Long): String {
         val root = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return text
+
+        // 端点不存在 / 已下线时，服务端返回的是 HTTP 200 + code 200 + data=[] + errorMsg="Not legal.xxx"。
+        // 不检查 errorMsg 的话，这类响应会被当成正常响应送进 DTO，静默变成空数据 ——
+        // 表现是「点了没反应」而不是报错，排查成本极高（实测 /random /hot_search /tags /user 都是这个形态）。
+        root["errorMsg"]?.let { el ->
+            val msg = (el as? JsonPrimitive)?.contentOrNull
+            if (msg != null && msg.startsWith("Not legal", ignoreCase = true)) {
+                throw JmException("禁漫端点不存在或已下线：$msg")
+            }
+        }
+
         val dataEl = root["data"]
         if (dataEl !is JsonPrimitive || !dataEl.isString) return text
         val plain = runCatching { JmCrypto.decrypt(dataEl.content, ts) }

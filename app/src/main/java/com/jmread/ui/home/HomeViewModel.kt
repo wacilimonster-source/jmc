@@ -90,7 +90,17 @@ class HomeViewModel : ViewModel() {
     private val _rankComics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val rankComics: StateFlow<List<ComicSummary>> = _rankComics.asStateFlow()
 
-    private val _rankType = MutableStateFlow("H24")
+    /**
+     * 默认档位 = 月榜（D30 → mv_m）。
+     *
+     * 为什么不默认日榜：2026-09-21 实测线上 `o=mv_t`（日）与 `o=mv_w`（周）
+     * 稳定返回 total=0 空列表，只有 `o=mv_m`（月）有数据（total=3498）。
+     * 参数名本身没错（两个参考库 JMComic-Crawler-Python / JMComic-qt 均确认），
+     * 是服务端这两档暂时没有数据。首页默认 Tab 就是排行榜，
+     * 若默认落在日榜，用户首屏看到的是「暂无数据」。
+     * 服务端恢复后把这里改回 "H24" 即可。
+     */
+    private val _rankType = MutableStateFlow("D30")
     val rankType: StateFlow<String> = _rankType.asStateFlow()
 
     private val _rankLoading = MutableStateFlow(false)

@@ -27,13 +27,21 @@ import java.util.concurrent.TimeUnit
 /**
  * 应用更新：从 GitHub 仓库的 update.json 检查版本，下载 APK 并安装。
  *
- * update.json 结构：{ "version": "0.3.0", "apkUrl": "https://raw.githubusercontent.com/.../pika-v0.3.0.apk", "notes": "更新说明" }
+ * update.json 结构：{ "version": "0.1.0", "apkUrl": "https://raw.githubusercontent.com/.../jm-reader-v0.1.0.apk", "notes": "更新说明", "sha256": "…" }
  */
 object UpdateManager {
 
-    /** 与仓库 update.json 保持一致 */
+    /**
+     * 与仓库 update.json 保持一致。
+     *
+     * ⚠ 必须是 JM 自己的仓库。此前这里指向 `wacilimonster-source/pika`——
+     *   后果是 JM 会读到 PiKA 的 update.json（version 1.6.0 > JM 的 0.1.0），
+     *   于是提示用户「发现新版本」并把 **PiKA 的 APK** 下载安装到手机上，
+     *   且 sha256 校验也能通过（因为校验的就是 PiKA 那个包）。
+     *   产品设计 §2「独立仓库、独立 update.json」这条当时漏了。
+     */
     const val UPDATE_URL =
-        "https://raw.githubusercontent.com/wacilimonster-source/pika/main/update.json"
+        "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/update.json"
 
     @Serializable
     data class UpdateInfo(

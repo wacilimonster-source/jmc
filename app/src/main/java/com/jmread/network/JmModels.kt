@@ -119,11 +119,24 @@ data class JmAlbumSummary(
     val description: String? = null,
 )
 
+/**
+ * 分类名对象（列表项的 category / category_sub）。
+ *
+ * ⚠ 线上这两个字段的值**可能是 null**（2026-09-21 实测：浏览流 23 条、搜索 20 条的
+ *   category_sub 都是 `{id:null, title:null}`）。
+ *   如果按非空 String 声明，能跑通就完全依赖 `Json { coerceInputValues = true }`
+ *   把 null 强转成默认值 —— 那等于把「类型漂移要在测试期就红」的防线（ADR-6）让掉了。
+ *   这里显式声明可空，读取方统一走 [idText] / [titleText]，不依赖宽容解析。
+ */
 @Serializable
 data class JmNamedItem(
-    val id: String = "",
-    val title: String = "",
-)
+    val id: String? = null,
+    val title: String? = null,
+) {
+    /** 展示/匹配用的大分类名，null 回退空串 */
+    val titleText: String get() = title.orEmpty()
+    val idText: String get() = id.orEmpty()
+}
 
 // ---------- /album 详情 ----------
 
