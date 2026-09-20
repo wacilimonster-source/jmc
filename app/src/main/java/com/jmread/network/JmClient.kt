@@ -301,7 +301,7 @@ object JmClient {
         val full = "$q&o=${sortToO(sort)}"
         val resp = json.decodeFromString<JmListResponse>(execute(full))
         return if (sort == ComicSort.DA) {
-            resp.copy(data = resp.data.copy(content = resp.data.content.asReversed()))
+            resp.copy(data = resp.data.copy(content = resp.data.items.asReversed()))
         } else {
             resp
         }

@@ -136,7 +136,7 @@ object JmRepository {
         sort: ComicSort = ComicSort.DD,
     ): PageResult<ComicSummary> {
         val data = JmClient.browse(page, category, sort)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         // total 恒 10000：pagesOf 判为不可信 → 按当页条数 + 125 硬上限
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = 0)
@@ -171,7 +171,7 @@ object JmRepository {
         category: String? = null,
     ): PageResult<ComicSummary> {
         val data = JmClient.search(keyword, page, sort, mainTag, category)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
@@ -185,7 +185,7 @@ object JmRepository {
             else -> "mv_t"
         }
         val data = JmClient.rankList(order, page)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
@@ -204,7 +204,7 @@ object JmRepository {
     /** 每周必看某期内容流 */
     suspend fun weeklyContent(weekId: String, page: Int): PageResult<ComicSummary> {
         val data = JmClient.weekFilter(weekId, page)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
@@ -299,7 +299,7 @@ object JmRepository {
 
     suspend fun favourites(page: Int): PageResult<ComicSummary> {
         val data = JmClient.favorites(page)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, FAV_PAGE_SIZE, 500)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
@@ -324,7 +324,7 @@ object JmRepository {
 
     suspend fun cloudHistory(page: Int): PageResult<ComicSummary> {
         val data = JmClient.watchList(page)
-        val items = data.data.content.map { it.toSummary() }
+        val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }

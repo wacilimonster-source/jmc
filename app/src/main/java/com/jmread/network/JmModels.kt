@@ -86,9 +86,20 @@ data class JmListResponse(
 @Serializable
 data class JmListData(
     val content: List<JmAlbumSummary> = emptyList(),
+    /**
+     * 部分端点的列表键叫 list 而不是 content（实测 /week/filter）。
+     *
+     * ⚠ 两个键都带 `= emptyList()` 默认值，所以键名写错时 kotlinx **不会抛异常**，
+     *   只会静默给出空列表——这是本项目最隐蔽的一类故障（每周必看某期曾因此永远显示空）。
+     *   读取方一律用 [items]，不要直接取 content。
+     */
+    val list: List<JmAlbumSummary> = emptyList(),
     /** 浏览流恒为 10000（=125页×80，页数可信值）；搜索/榜单/收藏是真实命中数 */
     val total: Int = 0,
-)
+) {
+    /** 统一取值口：content 与 list 哪个非空用哪个 */
+    val items: List<JmAlbumSummary> get() = if (content.isNotEmpty()) content else list
+}
 
 /** 列表项。注意：category / category_sub 是 {id,title} 对象，不是字符串 */
 @Serializable

@@ -65,11 +65,15 @@ JM/
 │     │  ├─ pagination/PagesOfTest.kt
 │     │  └─ scramble/ScrambleDetectorTest.kt  # 样本像素 fixture：还原/不误翻双断言
 │     └─ test/resources/jm/*.json      # list / search / album / chapter / forum / categories / week
-├─ tools/                              # 金丝雀脚本（从 pika/tools 移植+扩展）
-│  ├─ jm-api-check.mjs  jm-capability-probe.mjs  jm-shape-probe.mjs  jm-scramble-rule.py
-│  └─ dump-fixtures.mjs               # 一键拉真实响应 → 更新 test fixtures
-├─ docs/                               # 本文档 + product-design.md
-└─ update.json                         # 独立更新通道
+├─ tools/                              # 金丝雀脚本（2026-09-21 落地）
+│  ├─ jm-lib.mjs                       # 协议公共库（签名/解密/换域请求），与 JmCrypto+JmClient 等价
+│  ├─ jm-api-check.mjs                 # 端点存活 + 关键不变量 + 能力位复核（含 --deep / --selftest-only）
+│  ├─ jm-shape-probe.mjs               # 字段形态漂移比对（基线 .jm-shape-baseline.json）
+│  ├─ dump-fixtures.mjs                # 拉真实响应覆盖 test/resources/jm/*.json
+│  └─ oneoff/                          # 一次性改源码补丁脚本，已执行完，仅历史留档
+├─ docs/                               # 本文档 + product-design.md + research-jm-protocol.md + release.md
+│                                      # + verification-2026-09-21.md（线上验证报告）
+└─ gbuild.sh                           # 构建脚本（含 release 后按版本号重命名 APK）
 ```
 
 **构建配置**（对齐 PiKA，只改身份项）：AGP 8.9.0 / Kotlin 2.1.20 / Compose BOM 2024.12.01 / Gradle 8.11.1；compileSdk 35 / minSdk 26 / targetSdk 35；依赖：Compose + Navigation-Compose、DataStore Preferences、kotlinx-serialization-json 1.7.3、OkHttp 4.12.0、Coil 2.7.0、BouncyCastle bcprov/bctls/bcutil 1.78.1、**新增 junit + kotlinx-coroutines-test**（PiKA 零测试是 D14 教训）。release 开 minify + shrinkResources；签名沿用「默认 debug keystore 或环境变量注入」机制。
