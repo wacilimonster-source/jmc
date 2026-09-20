@@ -1,34 +1,541 @@
 {
   "code": 200,
-  "errorMsg": "",
   "data": {
-    "id": 441295,
-    "name": "多作者测试本",
-    "author": ["美娜讚", "鋼鐵王", "NTR"],
-    "description": "多作者协作详情",
+    "id": 646603,
+    "name": "[sample:name]",
     "images": [],
-    "addtime": "2026-08-28",
-    "total_views": "74821127",
-    "total_photos": 120,
-    "likes": "12345",
-    "comment_total": "67",
+    "addtime": "1789918565",
+    "description": "[sample:description]",
+    "total_views": "783735",
+    "total_photos": 5679,
+    "likes": "134686",
     "series": [
-      { "id": "552001", "name": "第1话", "sort": "1" },
-      { "id": "552002", "name": "", "sort": "3" },
-      { "id": "552003", "name": "第2话", "sort": "2" }
+      {
+        "id": "646603",
+        "name": "[sample:name]",
+        "sort": "1"
+      },
+      {
+        "id": "647249",
+        "name": "[sample:name]",
+        "sort": "2"
+      },
+      {
+        "id": "647250",
+        "name": "[sample:name]",
+        "sort": "3"
+      },
+      {
+        "id": "647251",
+        "name": "[sample:name]",
+        "sort": "4"
+      },
+      {
+        "id": "647252",
+        "name": "[sample:name]",
+        "sort": "5"
+      },
+      {
+        "id": "647253",
+        "name": "[sample:name]",
+        "sort": "6"
+      },
+      {
+        "id": "647989",
+        "name": "[sample:name]",
+        "sort": "7"
+      },
+      {
+        "id": "647990",
+        "name": "[sample:name]",
+        "sort": "8"
+      },
+      {
+        "id": "647991",
+        "name": "[sample:name]",
+        "sort": "9"
+      },
+      {
+        "id": "647992",
+        "name": "[sample:name]",
+        "sort": "10"
+      },
+      {
+        "id": "647993",
+        "name": "[sample:name]",
+        "sort": "11"
+      },
+      {
+        "id": "647994",
+        "name": "[sample:name]",
+        "sort": "12"
+      },
+      {
+        "id": "647995",
+        "name": "[sample:name]",
+        "sort": "13"
+      },
+      {
+        "id": "647996",
+        "name": "[sample:name]",
+        "sort": "14"
+      },
+      {
+        "id": "647997",
+        "name": "[sample:name]",
+        "sort": "15"
+      },
+      {
+        "id": "1022002",
+        "name": "[sample:name]",
+        "sort": "16"
+      },
+      {
+        "id": "647999",
+        "name": "[sample:name]",
+        "sort": "17"
+      },
+      {
+        "id": "1022003",
+        "name": "[sample:name]",
+        "sort": "18"
+      },
+      {
+        "id": "1015393",
+        "name": "[sample:name]",
+        "sort": "19"
+      },
+      {
+        "id": "1015630",
+        "name": "[sample:name]",
+        "sort": "20"
+      },
+      {
+        "id": "1017157",
+        "name": "[sample:name]",
+        "sort": "21"
+      },
+      {
+        "id": "1021429",
+        "name": "[sample:name]",
+        "sort": "22"
+      },
+      {
+        "id": "1022001",
+        "name": "[sample:name]",
+        "sort": "23"
+      },
+      {
+        "id": "1026129",
+        "name": "[sample:name]",
+        "sort": "24"
+      },
+      {
+        "id": "1026640",
+        "name": "[sample:name]",
+        "sort": "25"
+      },
+      {
+        "id": "1039464",
+        "name": "[sample:name]",
+        "sort": "26"
+      },
+      {
+        "id": "1039999",
+        "name": "[sample:name]",
+        "sort": "27"
+      },
+      {
+        "id": "1043834",
+        "name": "[sample:name]",
+        "sort": "28"
+      },
+      {
+        "id": "1062509",
+        "name": "[sample:name]",
+        "sort": "29"
+      },
+      {
+        "id": "1063805",
+        "name": "[sample:name]",
+        "sort": "30"
+      },
+      {
+        "id": "1066874",
+        "name": "[sample:name]",
+        "sort": "31"
+      },
+      {
+        "id": "1066875",
+        "name": "[sample:name]",
+        "sort": "32"
+      },
+      {
+        "id": "1067117",
+        "name": "[sample:name]",
+        "sort": "33"
+      },
+      {
+        "id": "1076894",
+        "name": "[sample:name]",
+        "sort": "34"
+      },
+      {
+        "id": "1078242",
+        "name": "[sample:name]",
+        "sort": "35"
+      },
+      {
+        "id": "1084582",
+        "name": "[sample:name]",
+        "sort": "36"
+      },
+      {
+        "id": "1113774",
+        "name": "[sample:name]",
+        "sort": "37"
+      },
+      {
+        "id": "1137754",
+        "name": "[sample:name]",
+        "sort": "38"
+      },
+      {
+        "id": "1137755",
+        "name": "[sample:name]",
+        "sort": "39"
+      },
+      {
+        "id": "1138763",
+        "name": "[sample:name]",
+        "sort": "40"
+      },
+      {
+        "id": "1138764",
+        "name": "[sample:name]",
+        "sort": "41"
+      },
+      {
+        "id": "1164524",
+        "name": "[sample:name]",
+        "sort": "42"
+      },
+      {
+        "id": "1164525",
+        "name": "[sample:name]",
+        "sort": "43"
+      },
+      {
+        "id": "1171911",
+        "name": "[sample:name]",
+        "sort": "44"
+      },
+      {
+        "id": "1176084",
+        "name": "[sample:name]",
+        "sort": "45"
+      },
+      {
+        "id": "1180643",
+        "name": "[sample:name]",
+        "sort": "46"
+      },
+      {
+        "id": "1185935",
+        "name": "[sample:name]",
+        "sort": "47"
+      },
+      {
+        "id": "1188970",
+        "name": "[sample:name]",
+        "sort": "48"
+      },
+      {
+        "id": "1200609",
+        "name": "[sample:name]",
+        "sort": "49"
+      },
+      {
+        "id": "1200610",
+        "name": "[sample:name]",
+        "sort": "50"
+      },
+      {
+        "id": "1201013",
+        "name": "[sample:name]",
+        "sort": "51"
+      },
+      {
+        "id": "1201014",
+        "name": "[sample:name]",
+        "sort": "52"
+      },
+      {
+        "id": "1201426",
+        "name": "[sample:name]",
+        "sort": "53"
+      },
+      {
+        "id": "1201427",
+        "name": "[sample:name]",
+        "sort": "54"
+      },
+      {
+        "id": "1201428",
+        "name": "[sample:name]",
+        "sort": "55"
+      },
+      {
+        "id": "1201429",
+        "name": "[sample:name]",
+        "sort": "55"
+      },
+      {
+        "id": "1223839",
+        "name": "[sample:name]",
+        "sort": "56"
+      },
+      {
+        "id": "1236183",
+        "name": "[sample:name]",
+        "sort": "57"
+      },
+      {
+        "id": "1236887",
+        "name": "[sample:name]",
+        "sort": "58"
+      },
+      {
+        "id": "1237073",
+        "name": "[sample:name]",
+        "sort": "59"
+      },
+      {
+        "id": "1237708",
+        "name": "[sample:name]",
+        "sort": "60"
+      },
+      {
+        "id": "1424174",
+        "name": "[sample:name]",
+        "sort": "61"
+      },
+      {
+        "id": "1425866",
+        "name": "[sample:name]",
+        "sort": "62"
+      },
+      {
+        "id": "1433468",
+        "name": "[sample:name]",
+        "sort": "63"
+      },
+      {
+        "id": "1435546",
+        "name": "[sample:name]",
+        "sort": "64"
+      },
+      {
+        "id": "1437799",
+        "name": "[sample:name]",
+        "sort": "65"
+      },
+      {
+        "id": "1439783",
+        "name": "[sample:name]",
+        "sort": "66"
+      },
+      {
+        "id": "1441779",
+        "name": "[sample:name]",
+        "sort": "67"
+      },
+      {
+        "id": "1443511",
+        "name": "[sample:name]",
+        "sort": "68"
+      },
+      {
+        "id": "1445102",
+        "name": "[sample:name]",
+        "sort": "69"
+      },
+      {
+        "id": "1446440",
+        "name": "[sample:name]",
+        "sort": "70"
+      },
+      {
+        "id": "1447974",
+        "name": "[sample:name]",
+        "sort": "71"
+      },
+      {
+        "id": "1449480",
+        "name": "[sample:name]",
+        "sort": "72"
+      },
+      {
+        "id": "1451137",
+        "name": "[sample:name]",
+        "sort": "73"
+      },
+      {
+        "id": "1452670",
+        "name": "[sample:name]",
+        "sort": "74"
+      },
+      {
+        "id": "1454118",
+        "name": "[sample:name]",
+        "sort": "75"
+      },
+      {
+        "id": "1455588",
+        "name": "[sample:name]",
+        "sort": "76"
+      },
+      {
+        "id": "1457380",
+        "name": "[sample:name]",
+        "sort": "77"
+      },
+      {
+        "id": "1459735",
+        "name": "[sample:name]",
+        "sort": "78"
+      },
+      {
+        "id": "1462259",
+        "name": "[sample:name]",
+        "sort": "79"
+      },
+      {
+        "id": "1464874",
+        "name": "[sample:name]",
+        "sort": "80"
+      },
+      {
+        "id": "1467414",
+        "name": "[sample:name]",
+        "sort": "81"
+      },
+      {
+        "id": "1469883",
+        "name": "[sample:name]",
+        "sort": "82"
+      },
+      {
+        "id": "1472704",
+        "name": "[sample:name]",
+        "sort": "83"
+      },
+      {
+        "id": "1474805",
+        "name": "[sample:name]",
+        "sort": "84"
+      }
     ],
-    "series_id": "550000",
-    "tags": ["標籤A", "標籤B"],
-    "works": ["原作X"],
-    "actors": ["角色Y"],
-    "price": "",
-    "purchased": "",
-    "is_aids": false,
-    "is_favorite": true,
-    "liked": false,
+    "series_id": "646603",
+    "real_link": "",
+    "comment_total": "1075",
+    "author": [
+      "[sample:author]",
+      "[sample:author]"
+    ],
+    "tags": [
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]",
+      "[sample:tags]"
+    ],
+    "works": [],
+    "actors": [],
     "related_list": [
-      { "id": "441300", "name": "相关本1", "author": "作者甲" },
-      { "id": "441301", "name": "相关本2", "author": "作者乙" }
-    ]
+      {
+        "id": "3836",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "97181",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "105997",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "106050",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "116385",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "116652",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "117330",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "119265",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "122061",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "125583",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "125823",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      },
+      {
+        "id": "126979",
+        "author": "[sample:author]",
+        "name": "[sample:name]",
+        "image": ""
+      }
+    ],
+    "liked": false,
+    "is_favorite": false,
+    "is_aids": false,
+    "price": "",
+    "purchased": ""
   }
 }

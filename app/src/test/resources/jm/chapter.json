@@ -1,8 +1,528 @@
 {
   "code": 200,
-  "errorMsg": "",
   "data": {
-    "id": "552001",
-    "images": ["00001.webp", "00002.webp", "00003.webp", "00004.webp"]
+    "id": 646603,
+    "series": [
+      {
+        "id": "646603",
+        "name": "[sample:name]",
+        "sort": "1"
+      },
+      {
+        "id": "647249",
+        "name": "[sample:name]",
+        "sort": "2"
+      },
+      {
+        "id": "647250",
+        "name": "[sample:name]",
+        "sort": "3"
+      },
+      {
+        "id": "647251",
+        "name": "[sample:name]",
+        "sort": "4"
+      },
+      {
+        "id": "647252",
+        "name": "[sample:name]",
+        "sort": "5"
+      },
+      {
+        "id": "647253",
+        "name": "[sample:name]",
+        "sort": "6"
+      },
+      {
+        "id": "647989",
+        "name": "[sample:name]",
+        "sort": "7"
+      },
+      {
+        "id": "647990",
+        "name": "[sample:name]",
+        "sort": "8"
+      },
+      {
+        "id": "647991",
+        "name": "[sample:name]",
+        "sort": "9"
+      },
+      {
+        "id": "647992",
+        "name": "[sample:name]",
+        "sort": "10"
+      },
+      {
+        "id": "647993",
+        "name": "[sample:name]",
+        "sort": "11"
+      },
+      {
+        "id": "647994",
+        "name": "[sample:name]",
+        "sort": "12"
+      },
+      {
+        "id": "647995",
+        "name": "[sample:name]",
+        "sort": "13"
+      },
+      {
+        "id": "647996",
+        "name": "[sample:name]",
+        "sort": "14"
+      },
+      {
+        "id": "647997",
+        "name": "[sample:name]",
+        "sort": "15"
+      },
+      {
+        "id": "1022002",
+        "name": "[sample:name]",
+        "sort": "16"
+      },
+      {
+        "id": "647999",
+        "name": "[sample:name]",
+        "sort": "17"
+      },
+      {
+        "id": "1022003",
+        "name": "[sample:name]",
+        "sort": "18"
+      },
+      {
+        "id": "1015393",
+        "name": "[sample:name]",
+        "sort": "19"
+      },
+      {
+        "id": "1015630",
+        "name": "[sample:name]",
+        "sort": "20"
+      },
+      {
+        "id": "1017157",
+        "name": "[sample:name]",
+        "sort": "21"
+      },
+      {
+        "id": "1021429",
+        "name": "[sample:name]",
+        "sort": "22"
+      },
+      {
+        "id": "1022001",
+        "name": "[sample:name]",
+        "sort": "23"
+      },
+      {
+        "id": "1026129",
+        "name": "[sample:name]",
+        "sort": "24"
+      },
+      {
+        "id": "1026640",
+        "name": "[sample:name]",
+        "sort": "25"
+      },
+      {
+        "id": "1039464",
+        "name": "[sample:name]",
+        "sort": "26"
+      },
+      {
+        "id": "1039999",
+        "name": "[sample:name]",
+        "sort": "27"
+      },
+      {
+        "id": "1043834",
+        "name": "[sample:name]",
+        "sort": "28"
+      },
+      {
+        "id": "1062509",
+        "name": "[sample:name]",
+        "sort": "29"
+      },
+      {
+        "id": "1063805",
+        "name": "[sample:name]",
+        "sort": "30"
+      },
+      {
+        "id": "1066874",
+        "name": "[sample:name]",
+        "sort": "31"
+      },
+      {
+        "id": "1066875",
+        "name": "[sample:name]",
+        "sort": "32"
+      },
+      {
+        "id": "1067117",
+        "name": "[sample:name]",
+        "sort": "33"
+      },
+      {
+        "id": "1076894",
+        "name": "[sample:name]",
+        "sort": "34"
+      },
+      {
+        "id": "1078242",
+        "name": "[sample:name]",
+        "sort": "35"
+      },
+      {
+        "id": "1084582",
+        "name": "[sample:name]",
+        "sort": "36"
+      },
+      {
+        "id": "1113774",
+        "name": "[sample:name]",
+        "sort": "37"
+      },
+      {
+        "id": "1137754",
+        "name": "[sample:name]",
+        "sort": "38"
+      },
+      {
+        "id": "1137755",
+        "name": "[sample:name]",
+        "sort": "39"
+      },
+      {
+        "id": "1138763",
+        "name": "[sample:name]",
+        "sort": "40"
+      },
+      {
+        "id": "1138764",
+        "name": "[sample:name]",
+        "sort": "41"
+      },
+      {
+        "id": "1164524",
+        "name": "[sample:name]",
+        "sort": "42"
+      },
+      {
+        "id": "1164525",
+        "name": "[sample:name]",
+        "sort": "43"
+      },
+      {
+        "id": "1171911",
+        "name": "[sample:name]",
+        "sort": "44"
+      },
+      {
+        "id": "1176084",
+        "name": "[sample:name]",
+        "sort": "45"
+      },
+      {
+        "id": "1180643",
+        "name": "[sample:name]",
+        "sort": "46"
+      },
+      {
+        "id": "1185935",
+        "name": "[sample:name]",
+        "sort": "47"
+      },
+      {
+        "id": "1188970",
+        "name": "[sample:name]",
+        "sort": "48"
+      },
+      {
+        "id": "1200609",
+        "name": "[sample:name]",
+        "sort": "49"
+      },
+      {
+        "id": "1200610",
+        "name": "[sample:name]",
+        "sort": "50"
+      },
+      {
+        "id": "1201013",
+        "name": "[sample:name]",
+        "sort": "51"
+      },
+      {
+        "id": "1201014",
+        "name": "[sample:name]",
+        "sort": "52"
+      },
+      {
+        "id": "1201426",
+        "name": "[sample:name]",
+        "sort": "53"
+      },
+      {
+        "id": "1201427",
+        "name": "[sample:name]",
+        "sort": "54"
+      },
+      {
+        "id": "1201428",
+        "name": "[sample:name]",
+        "sort": "55"
+      },
+      {
+        "id": "1201429",
+        "name": "[sample:name]",
+        "sort": "55"
+      },
+      {
+        "id": "1223839",
+        "name": "[sample:name]",
+        "sort": "56"
+      },
+      {
+        "id": "1236183",
+        "name": "[sample:name]",
+        "sort": "57"
+      },
+      {
+        "id": "1236887",
+        "name": "[sample:name]",
+        "sort": "58"
+      },
+      {
+        "id": "1237073",
+        "name": "[sample:name]",
+        "sort": "59"
+      },
+      {
+        "id": "1237708",
+        "name": "[sample:name]",
+        "sort": "60"
+      },
+      {
+        "id": "1424174",
+        "name": "[sample:name]",
+        "sort": "61"
+      },
+      {
+        "id": "1425866",
+        "name": "[sample:name]",
+        "sort": "62"
+      },
+      {
+        "id": "1433468",
+        "name": "[sample:name]",
+        "sort": "63"
+      },
+      {
+        "id": "1435546",
+        "name": "[sample:name]",
+        "sort": "64"
+      },
+      {
+        "id": "1437799",
+        "name": "[sample:name]",
+        "sort": "65"
+      },
+      {
+        "id": "1439783",
+        "name": "[sample:name]",
+        "sort": "66"
+      },
+      {
+        "id": "1441779",
+        "name": "[sample:name]",
+        "sort": "67"
+      },
+      {
+        "id": "1443511",
+        "name": "[sample:name]",
+        "sort": "68"
+      },
+      {
+        "id": "1445102",
+        "name": "[sample:name]",
+        "sort": "69"
+      },
+      {
+        "id": "1446440",
+        "name": "[sample:name]",
+        "sort": "70"
+      },
+      {
+        "id": "1447974",
+        "name": "[sample:name]",
+        "sort": "71"
+      },
+      {
+        "id": "1449480",
+        "name": "[sample:name]",
+        "sort": "72"
+      },
+      {
+        "id": "1451137",
+        "name": "[sample:name]",
+        "sort": "73"
+      },
+      {
+        "id": "1452670",
+        "name": "[sample:name]",
+        "sort": "74"
+      },
+      {
+        "id": "1454118",
+        "name": "[sample:name]",
+        "sort": "75"
+      },
+      {
+        "id": "1455588",
+        "name": "[sample:name]",
+        "sort": "76"
+      },
+      {
+        "id": "1457380",
+        "name": "[sample:name]",
+        "sort": "77"
+      },
+      {
+        "id": "1459735",
+        "name": "[sample:name]",
+        "sort": "78"
+      },
+      {
+        "id": "1462259",
+        "name": "[sample:name]",
+        "sort": "79"
+      },
+      {
+        "id": "1464874",
+        "name": "[sample:name]",
+        "sort": "80"
+      },
+      {
+        "id": "1467414",
+        "name": "[sample:name]",
+        "sort": "81"
+      },
+      {
+        "id": "1469883",
+        "name": "[sample:name]",
+        "sort": "82"
+      },
+      {
+        "id": "1472704",
+        "name": "[sample:name]",
+        "sort": "83"
+      },
+      {
+        "id": "1474805",
+        "name": "[sample:name]",
+        "sort": "84"
+      }
+    ],
+    "tags": "[sample:tags]",
+    "name": "[sample:name]",
+    "images": [
+      "00001.webp",
+      "00002.webp",
+      "00003.webp",
+      "00004.webp",
+      "00005.webp",
+      "00006.webp",
+      "00007.webp",
+      "00008.webp",
+      "00009.webp",
+      "00010.webp",
+      "00011.webp",
+      "00012.webp",
+      "00013.webp",
+      "00014.webp",
+      "00015.webp",
+      "00016.webp",
+      "00017.webp",
+      "00018.webp",
+      "00019.webp",
+      "00020.webp",
+      "00021.webp",
+      "00022.webp",
+      "00023.webp",
+      "00024.webp",
+      "00025.webp",
+      "00026.webp",
+      "00027.webp",
+      "00028.webp",
+      "00029.webp",
+      "00030.webp",
+      "00031.webp",
+      "00032.webp",
+      "00033.webp",
+      "00034.webp",
+      "00035.webp",
+      "00036.webp",
+      "00037.webp",
+      "00038.webp",
+      "00039.webp",
+      "00040.webp",
+      "00041.webp",
+      "00042.webp",
+      "00043.webp",
+      "00044.webp",
+      "00045.webp",
+      "00046.webp",
+      "00047.webp",
+      "00048.webp",
+      "00049.webp",
+      "00050.webp",
+      "00051.webp",
+      "00052.webp",
+      "00053.webp",
+      "00054.webp",
+      "00055.webp",
+      "00056.webp",
+      "00057.webp",
+      "00058.webp",
+      "00059.webp",
+      "00060.webp",
+      "00061.webp",
+      "00062.webp",
+      "00063.webp",
+      "00064.webp",
+      "00065.webp",
+      "00066.webp",
+      "00067.webp",
+      "00068.webp",
+      "00069.webp",
+      "00070.webp",
+      "00071.webp",
+      "00072.webp",
+      "00073.webp",
+      "00074.webp",
+      "00075.webp",
+      "00076.webp",
+      "00077.webp",
+      "00078.webp",
+      "00079.webp",
+      "00080.webp",
+      "00081.webp",
+      "00082.webp",
+      "00083.webp",
+      "00084.webp",
+      "00085.webp",
+      "00086.webp"
+    ],
+    "addtime": "1789918565",
+    "real_link": "",
+    "series_id": "646603",
+    "is_favorite": false,
+    "liked": false
   }
 }

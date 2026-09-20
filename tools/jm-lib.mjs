@@ -153,8 +153,8 @@ export class JmApi {
   }
 
   /**
-   * 单次逻辑请求：按 host 顺序逐个尝试，网络错误/非 2xx/非 JSON 响应都触发换域。
-   * 业务异常（HTTP 4xx）不换域，直接抛——换域改变不了业务错误。
+   * 单次逻辑请求：按 host 顺序逐个尝试，网络错误/5xx/429/非 JSON 响应都触发换域。
+   * 业务异常（其余 4xx）不换域，直接抛——换域改变不了业务错误。
    */
   async request(path, { form = null, method = null, noDecrypt = false } = {}) {
     let lastErr;
@@ -174,6 +174,12 @@ export class JmApi {
         }
         const res = await fetch(`https://${host}${path}`, init);
         const text = await res.text();
+        // 5xx / 429 = 服务端或网关故障 -> 换域重试（与 JmClient.isRetryableHttpStatus 一致）
+        // 实测 2026-09-21：/search 在 4 个内置镜像上随机 500（空体），同时必有镜像 200。
+        if (res.status >= 500 || res.status === 429) {
+          throw new Error(`HTTP ${res.status}（服务端故障，换域重试）`);
+        }
+        // 其余 4xx = 业务错误，换域改变不了结果
         if (res.status >= 400) {
           throw new JmError(`HTTP ${res.status}: ${text.slice(0, 120)}`, res.status);
         }

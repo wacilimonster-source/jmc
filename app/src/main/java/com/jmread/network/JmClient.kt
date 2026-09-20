@@ -82,6 +82,18 @@ object JmClient {
     /** 单次调用的最大换域尝试数（覆盖内置镜像数即可） */
     private const val MAX_HOST_ATTEMPTS = 4
 
+    /**
+     * 该 HTTP 状态是否值得「换一条线路再试」。
+     *
+     * 5xx = 服务端/网关故障，换域有效（实测 /search 在 4 个镜像上随机 500、同时必有镜像 200）。
+     * 429 = 限流，换域同样有效。
+     * 其余 4xx = 业务错误（端点不存在、参数非法、未登录），换域改变不了结果。
+     *
+     * ⚠ 早期版本把所有非 2xx 都当业务错误直接上抛，导致 5xx 时不换域——
+     *   等于把「换条线路就好」变成硬失败。
+     */
+    internal fun isRetryableHttpStatus(code: Int): Boolean = code >= 500 || code == 429
+
     /** 统一请求：带签名头 + 解密响应 + 失败换域 + 401 重登 */
     private suspend fun execute(
         relative: String,
@@ -117,6 +129,12 @@ object JmClient {
                         return@withContext execute(relative, form, retriedAuth = true)
                     }
                     if (resp.code == 401) throw JmException("禁漫接口 401：${text.take(120)}", 401)
+                    if (isRetryableHttpStatus(resp.code)) {
+                        // 5xx / 429 是服务端或网关故障：换一条线路大概率能成。
+                        // 实测 2026-09-21：/search 在 4 个内置镜像上随机返回 HTTP 500（空体），
+                        // 同一时刻总有镜像返回 200 —— 不换域就等于把「换条线路就好」变成硬失败。
+                        throw IOException("禁漫接口 ${resp.code}（服务端故障，换域重试）：${text.take(80)}")
+                    }
                     if (!resp.isSuccessful) {
                         throw JmException("禁漫接口 ${resp.code}: ${text.take(120)}", resp.code)
                     }
@@ -176,17 +194,28 @@ object JmClient {
     /**
      * 拉 /setting 刷新域名池 / 图片 host / 版本号。
      * 在启动与每次换域成功后触发；失败静默（内置表兜底）。
+     *
+     * 严格 DTO 解析失败时降级到 [extractSettingLeniently]：
+     * /setting 是「域名四级自愈」的唯一数据源，不能因为单个字段的类型漂移整体失效。
+     * 2026-09-21 真机事故即为此：app_shunts 线上是对象数组、DTO 声明成 List<String>，
+     * 导致自愈链路静默瘫痪（只在调试日志留一行 WARN）。
      */
     suspend fun refreshSetting(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastSettingFetch < SETTING_REFRESH_INTERVAL) return
         try {
-            val resp = json.decodeFromString(
-                JmSettingResponse.serializer(),
-                execute("/setting"),
-            )
+            val text = execute("/setting")
+            val parsed = runCatching { json.decodeFromString(JmSettingResponse.serializer(), text) }
+            val d = parsed.getOrNull()?.data
+                ?: parseSettingLeniently(text)?.also {
+                    LogStore.log(
+                        "jm-net", "WARN",
+                        "/setting DTO 解析失败，已降级宽松提取（自愈字段仍生效）：" +
+                            parsed.exceptionOrNull()?.message?.take(70),
+                    )
+                }
+                ?: error("/setting 响应无法解析（严格 + 宽松均失败）")
             lastSettingFetch = System.currentTimeMillis()
-            val d = resp.data
             DomainPool.applySetting(d.baseUrl.takeIf { it.isNotBlank() }, d.imgHost.takeIf { it.isNotBlank() }, null)
             val prefs = SourcePrefs.current()
             if (d.baseUrl.isNotBlank()) prefs.setResolvedBase(d.baseUrl)

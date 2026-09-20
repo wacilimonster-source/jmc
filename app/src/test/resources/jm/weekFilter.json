@@ -1,0 +1,206 @@
+{
+  "code": 200,
+  "data": {
+    "total": 11,
+    "list": [
+      {
+        "id": "1470691",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1788922291
+      },
+      {
+        "id": "1471114",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789006479
+      },
+      {
+        "id": "1471520",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789089912
+      },
+      {
+        "id": "1471521",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789089912
+      },
+      {
+        "id": "1471552",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789117414
+      },
+      {
+        "id": "1471950",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789180674
+      },
+      {
+        "id": "1472178",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789227236
+      },
+      {
+        "id": "1472554",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789341400
+      },
+      {
+        "id": "1473060",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789451720
+      },
+      {
+        "id": "1473367",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789550255
+      },
+      {
+        "id": "1473671",
+        "author": "[sample:author]",
+        "description": "[sample:description]",
+        "name": "[sample:name]",
+        "image": "",
+        "category": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "category_sub": {
+          "id": "1",
+          "title": "[sample:title]"
+        },
+        "liked": false,
+        "is_favorite": false,
+        "update_at": 1789627712
+      }
+    ]
+  }
+}

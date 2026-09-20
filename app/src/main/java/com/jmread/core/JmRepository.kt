@@ -365,7 +365,9 @@ object JmRepository {
             likesCount = likes.toIntOrNull() ?: 0,
             isSpoiler = spoiler == "1",
             isAd = ad,
-            badges = expinfo.badges,
+            // 线上 badges 是 {content, name, id} 对象数组；这里只取展示名，
+            // content（徽章图相对路径）留待真要渲染徽章时再接
+            badges = expinfo.badges.map { it.name }.filter { it.isNotBlank() },
             replies = replys.map { it.toComment() }.map { r ->
                 // 子评论同样过治理规则
                 val p = stripHtml(r.content)

@@ -1,12 +1,57 @@
 {
   "code": 200,
-  "errorMsg": "",
   "data": {
+    "version": "1.8.2",
+    "test_version": "1.8.2",
+    "store_link": "https://play.google.com/store/apps/details?id=com.jiaohua_browser",
+    "ios_version": "1.8.2",
+    "ios_test_version": "1.8.2",
+    "ios_store_link": "https://18comic.vip/stray/",
+    "jm3_version": "2.1.8",
+    "jm3_test_version": "2.1.8",
+    "jm3_store_link": "https://play.google.com/store/apps/details?id=com.jiaohua_browser",
+    "jm3_ios_version": "1.0.0",
+    "jm3_ios_test_version": "1.0.0",
+    "jm3_ios_store_link": "https://18comic.vip/stray/",
+    "jm3_download_url": "https://comic18j-jjeg.cc/static/jmapp3apk/JMComic3v2.1.8.apk?v=20260917105354",
+    "ipcountry": "CN",
+    "newYearEvent": true,
+    "ad_cache_version": 1789894419,
+    "bundle_url": "https://comic18j-jjeg.cc/static/apk/patches1.8.2.zip",
+    "download_url": "https://comic18j-jjeg.cc/static/apk/1.8.2.apk?v=20250826",
+    "app_landing_page": "https://jm-uu.cc/pXYbfA",
+    "version_info": "[sample:version_info]",
+    "jm3_is_hot_update": false,
+    "jm3_version_info": "[sample:jm3_version_info]",
+    "is_hot_update": false,
     "base_url": "https://www.cdngwc.cc",
-    "cn_base_url": "https://www.cdngwc.cc",
+    "donate_url": "https://jm-uu.cc/hhbyyW",
     "main_web_host": "18comic.vip",
-    "img_host": "cdn-msp12.jmdanjonproxy.xyz",
-    "app_shunts": ["圖源1", "圖源2", "圖源3", "圖源4"],
-    "jm3_version": "2.1.8"
+    "img_host": "https://cdn-msp3.jmapiproxy1.cc",
+    "api_banner_path": "https://cdn-msp3.jmapiproxy1.cc/media/logo/channel_log.png?v=",
+    "logo_path": "https://cdn-msp3.jmapiproxy1.cc/media/logo/new_logo.png",
+    "float_ad": true,
+    "is_cn": 1,
+    "cn_base_url": "https://www.cdngwc.cc",
+    "app_shunts": [
+      {
+        "title": "[sample:title]",
+        "key": 1
+      },
+      {
+        "title": "[sample:title]",
+        "key": 2
+      },
+      {
+        "title": "[sample:title]",
+        "key": 3
+      },
+      {
+        "title": "[sample:title]",
+        "key": 4
+      }
+    ],
+    "foolsDayEvent": false,
+    "iqq_app_download_page": "iqqm4.work/stary/?fromsite=allweb.18comic&utm_source=18comic&utm_medium=allweb&utm_campaign=movie"
   }
 }

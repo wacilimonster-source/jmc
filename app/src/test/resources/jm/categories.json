@@ -1,29 +1,277 @@
 {
   "code": 200,
-  "errorMsg": "",
   "data": {
     "categories": [
       {
+        "id": 0,
+        "name": "[sample:name]",
+        "slug": "",
+        "total_albums": 0
+      },
+      {
         "id": "1",
-        "name": "同人志",
+        "name": "[sample:name]",
         "slug": "doujin",
-        "total_albums": 349441,
+        "type": "slug",
+        "total_albums": "349604",
         "sub_categories": [
-          { "name": "漢化", "slug": "doujin-chinese" },
-          { "name": "日語", "slug": "doujin-japanese" }
+          {
+            "CID": "1",
+            "name": "[sample:name]",
+            "slug": "chinese"
+          },
+          {
+            "CID": "2",
+            "name": "[sample:name]",
+            "slug": "japanese"
+          },
+          {
+            "CID": "3",
+            "name": "[sample:name]",
+            "slug": "CG"
+          },
+          {
+            "CID": "20",
+            "name": "[sample:name]",
+            "slug": "no_mosaic"
+          },
+          {
+            "CID": "23",
+            "name": "[sample:name]",
+            "slug": "coloring"
+          }
         ]
       },
       {
         "id": "2",
-        "name": "單行本",
+        "name": "[sample:name]",
         "slug": "single",
-        "total_albums": 98765,
-        "sub_categories": []
+        "type": "slug",
+        "total_albums": "42912",
+        "sub_categories": [
+          {
+            "CID": "5",
+            "name": "[sample:name]",
+            "slug": "chinese"
+          },
+          {
+            "CID": "6",
+            "name": "[sample:name]",
+            "slug": "japanese"
+          },
+          {
+            "CID": "12",
+            "name": "[sample:name]",
+            "slug": "youth"
+          },
+          {
+            "CID": "21",
+            "name": "[sample:name]",
+            "slug": "no_mosaic"
+          },
+          {
+            "CID": "24",
+            "name": "[sample:name]",
+            "slug": "coloring"
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "name": "[sample:name]",
+        "slug": "short",
+        "type": "slug",
+        "total_albums": "117821",
+        "sub_categories": [
+          {
+            "CID": "7",
+            "name": "[sample:name]",
+            "slug": "chinese"
+          },
+          {
+            "CID": "8",
+            "name": "[sample:name]",
+            "slug": "japanese"
+          },
+          {
+            "CID": "22",
+            "name": "[sample:name]",
+            "slug": "no_mosaic"
+          },
+          {
+            "CID": "25",
+            "name": "[sample:name]",
+            "slug": "coloring"
+          }
+        ]
+      },
+      {
+        "id": "4",
+        "name": "[sample:name]",
+        "slug": "another",
+        "type": "slug",
+        "total_albums": "52396",
+        "sub_categories": [
+          {
+            "CID": "9",
+            "name": "[sample:name]",
+            "slug": "other"
+          },
+          {
+            "CID": "10",
+            "name": "[sample:name]",
+            "slug": "3d"
+          },
+          {
+            "CID": "11",
+            "name": "[sample:name]",
+            "slug": "cosplay"
+          }
+        ]
+      },
+      {
+        "id": "5",
+        "name": "[sample:name]",
+        "slug": "hanman",
+        "type": "slug",
+        "total_albums": "128871",
+        "sub_categories": [
+          {
+            "CID": "19",
+            "name": "[sample:name]",
+            "slug": "chinese"
+          }
+        ]
+      },
+      {
+        "id": "6",
+        "name": "[sample:name]",
+        "slug": "meiman",
+        "type": "slug",
+        "total_albums": "397296",
+        "sub_categories": [
+          {
+            "CID": "13",
+            "name": "[sample:name]",
+            "slug": "irodori"
+          },
+          {
+            "CID": "14",
+            "name": "[sample:name]",
+            "slug": "fakku"
+          },
+          {
+            "CID": "15",
+            "name": "[sample:name]",
+            "slug": "18scan"
+          },
+          {
+            "CID": "16",
+            "name": "[sample:name]",
+            "slug": "manhwa"
+          },
+          {
+            "CID": "17",
+            "name": "[sample:name]",
+            "slug": "comic"
+          },
+          {
+            "CID": "18",
+            "name": "[sample:name]",
+            "slug": "other"
+          }
+        ]
+      },
+      {
+        "id": "7",
+        "name": "[sample:name]",
+        "slug": "another_cosplay",
+        "type": "search",
+        "total_albums": 0
+      },
+      {
+        "id": "8",
+        "name": "[sample:name]",
+        "type": "search",
+        "slug": "3D",
+        "total_albums": 0
+      },
+      {
+        "id": "9",
+        "name": "[sample:name]",
+        "type": "search",
+        "slug": "禁漫汉化组",
+        "total_albums": 0
       }
     ],
     "blocks": [
-      { "title": "熱門標籤", "content": ["調教", "禁漫漢化組", "胃疼"] },
-      { "title": "角色", "content": ["標籤4", "標籤5", "標籤6"] }
+      {
+        "title": "[sample:title]",
+        "content": [
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]"
+        ]
+      },
+      {
+        "title": "[sample:title]",
+        "content": [
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]"
+        ]
+      },
+      {
+        "title": "[sample:title]",
+        "content": [
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]"
+        ]
+      },
+      {
+        "title": "[sample:title]",
+        "content": [
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]",
+          "[sample:content]"
+        ]
+      }
     ]
   }
 }
