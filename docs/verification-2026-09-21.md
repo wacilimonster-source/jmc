@@ -220,10 +220,131 @@ node tools/dump-fixtures.mjs --dry       # 预览真实 fixture，不落盘
 - [x] ~~F4 加固 `errorMsg` 判断~~ 已完成
 - [x] ~~F5 `JmNamedItem` 改可空~~ 已完成
 - [x] ~~F1 首屏空白~~ 已缓解（默认档位改月榜 + 补空态）
+- [x] ~~跑 `dump-fixtures.mjs` 用真实数据替换手写 fixture~~ 已完成（见 §10.3）
+- [x] ~~`update.json` 发布链路未落地~~ 已完成（仓库 `wacilimonster-source/jmc`，见 §10.5）
+- [x] ~~真机验收：安装/隔离/18+ 门/首页/分类/详情/阅读器/评论/设置/更新~~ 已完成（见 §10.5）
 - [ ] **F1 根因**：服务端日榜/周榜何时恢复？恢复后把 `_rankType` 默认值改回 `"H24"`。
       可以把这个判断交给金丝雀——`jm-api-check.mjs` 的那两条断言会变绿，是恢复的信号。
-- [ ] 跑 `dump-fixtures.mjs` 用真实数据替换手写 fixture，并同步更新断言值
 - [ ] 探明业务错误的 `code` 取值，再给 `JmClient` 加通用 code 判断
-- [ ] 真机验收 checklist（产品设计 §8）仍未执行，仍是 v1.0 的唯一完成定义
-- [ ] `update.json` 发布链路未落地（`gbuild.sh` + `docs/release.md` 已就位，
-      缺更新仓库地址 —— 仓库名与可见性待确认）
+- [ ] 真机验收剩余项：阅读器 125 页「到底了」上限、坏域名自动恢复、乱序还原命中率统计
+- [ ] 图片 CDN 回退路径未在真机上被实际触发（本次首选 CDN 恰好健康），只有单测覆盖
+
+---
+
+## 10. 2026-09-21 晚 · 真机验收带出的第二批缺陷
+
+真机验收（MuMu 模拟器 `127.0.0.1:16384`）暴露了桌面单测完全看不见的一族缺陷。
+共同特征：**DTO 字段类型与线上实际形态不符 → 整包解析抛异常 → 调用方吞掉异常 →
+表现为「点了没反应 / 列表空白」而不是报错。**
+
+### 10.1 四个「整包解析失败」级 DTO 类型错误（P0，已修）
+
+| # | 字段 | 线上实际形态 | 原声明 | 后果 |
+|---|---|---|---|---|
+| F6 | `/setting.app_shunts` | 对象数组 `[{title,key}]` | `List<String>` | **域名四级自愈整条链路静默失效**（含签名版本号不再刷新） |
+| F7 | `/categories[].id` | 首条 `最新A漫` 是裸数字 `0`，其余是字符串 `"1"` | `String` | 分类列表静默变空（异常被 `runCatching` 吞掉） |
+| F8 | `/chapter.data.id` | 裸数字 `646603` | `String` | **阅读器打不开任何一章** |
+| F9 | `/forum.expinfo.badges` | 对象数组 `[{content,name,id}]` | `List<String>` | 评论页全空 |
+
+修法：新增 `JmFlexibleStringSerializer` 承接「数字或字符串」字段（F7/F8），
+新增 `JmBadge` DTO（F9），`app_shunts` 改 `List<JmShunt>`（F6）。
+
+**为什么能同时潜伏**：`app_shunts` / `badges` 两个字段 App 根本没消费，
+但 kotlinx 解析失败是**整包级**的 —— 一个用不到的字段类型写错，会连带打挂整个接口。
+
+### 10.2 HTTP 5xx 被当成业务错误，不换域（P0，已修）
+
+`JmClient.execute` 把所有非 2xx 都归为「业务异常，换域无意义」直接上抛。
+但实测 `/search` 会在 4 个内置镜像上**随机**返回 HTTP 500（空体），同一时刻必有镜像返回 200：
+
+```
+轮1: cdngwc.cc 500  cdnhjk.net 200  cdngwc.net 500  cdngwc.club 500
+轮2: cdngwc.cc 200  cdnhjk.net 200  cdngwc.net 500  cdngwc.club 200
+轮5: cdngwc.cc 200  cdnhjk.net 500  cdngwc.net 500  cdngwc.club 500
+```
+
+不换域 = 把「换条线路就好」变成硬失败。新增 `JmClient.isRetryableHttpStatus`：
+5xx / 429 换域重试，其余 4xx 才按业务错误上抛。`tools/jm-lib.mjs` 同步修正
+（此前它是 4xx/5xx 一律不换域，与 App 行为不一致，会给出错误结论）。
+
+### 10.3 根因治理：手写 fixture + 缺失的契约校验
+
+三个层面的漏洞叠加，才让上面 4 个 bug 同时潜伏：
+
+1. **fixture 是手写的**（`"测试本子A"` / `"评论者甲"`），只能证明「DTO 能解析我以为的形态」。
+   `badges: ["badge1"]`、`app_shunts: ["圖源1",...]` 的形状本身就是错的 —— 单测绿是假绿。
+   → 改为 `tools/dump-fixtures.mjs` 从真实响应生成：保留全部类型/结构/数组长度，
+   **自由文本脱敏成 `[sample:<字段名>]`**（评论区含导流广告与成人向文案，不宜入库）。
+2. **`jm-shape-probe.mjs` 发现不了这类问题**：它的基线录的就是线上形态，两边永远一致。
+   它能发现「线上形态变了」，发现不了「DTO 声明跟线上不符」。
+   → 新增 `tools/jm-dto-contract.mjs`：解析 `JmModels.kt` 的 data class 声明，
+   推导每个字段的期望 JSON 类型，与线上形态基线逐字段对账。
+   已用**负向控制**验证：把 `app_shunts` 改回 `List<String>`，该脚本报
+   `~ 类型不符 data.app_shunts 声明 List<String>，线上元素却是 对象（对象数组）`，退出码 1。
+3. **kotlinx 的强制转换语义是不对称的**，此前只是「印象」而非「事实」。
+   → 新增 `KotlinxCoercionSemanticsTest` 固化实测结论：
+
+   | 线上形态 → 声明类型 | 结果 |
+   |---|---|
+   | 数字 → `String` | **抛异常**（唯一会炸的方向） |
+   | 字符串数字 → `Int` / `Long` | 自动转换 |
+   | 字符串布尔 → `Boolean` | 自动转换 |
+   | `null` → 非空字段 | `coerceInputValues` 兜成默认值 |
+
+   推论：线上可能是数字的字段声明成 `String` 就是定时炸弹；声明成数字则两种形态都能吃下。
+   `jm-dto-contract.mjs` 的允许类型表按此表编码（数字/布尔字段容忍字符串，String 字段不容忍数字）。
+
+### 10.4 图片 CDN 没有失败转移（P0，已修）
+
+阅读器报「第 1 页加载失败」，logcat 显示 BouncyCastle `handshake_failure(40)`。
+根因不是 TLS 配置，而是**图片侧完全没有失败转移**：
+
+- `JmImageFetcher.download` 只请求 `JmCrypto.imageUrl` 给出的那**一个**散列 host；
+- `DomainPool.markBad/badUntil` 只服务 API 域，图片 host 永远不会被标记为坏；
+- `/setting` 下发的 `img_host` **每次请求都可能不同**（实测三次拿到
+  `cdn-msp2.jmapiproxy1.cc` / `cdn-msp12.jmdanjonproxy.xyz` / `cdn-msp2.jmapiproxy3.cc`），
+  且各 CDN 会按区域被 DNS 屏蔽（实测本机 `*.jmapiproxy3.cc` 被解析到 `127.0.0.1`）。
+
+→ 一旦散列命中坏 CDN，整本书的图永远打不开，且没有任何恢复途径。
+
+修法：`DomainPool` 新增图片侧健康表 `badImageUntil`（与 API 的 `badUntil` **分开维护**——
+两套域名故障互不相关，混用会让 API 换域误伤图片线路），
+`imageHostOrder(current)` 给出尝试顺序（当前 host 优先以保持磁盘缓存命中，坏 host 排最后兜底），
+`imageHostFor` 的散列池排除回避期内的 host。`JmImageFetcher` 与 `DownloadManager` 逐 host 重试。
+
+### 10.5 真机验收结果（v0.1.2）
+
+| 项 | 结果 |
+|---|---|
+| 与 PiKA 同机隔离 | ✅ PiKA `lastUpdateTime` 保持 `2026-09-19 03:12:17` 未变 |
+| 18+ 首次门禁 | ✅ |
+| 首页（真实数据） | ✅ `共 3498 部` + 封面/标题/作者/日期 |
+| 分类列表 | ✅ 10 个大类全部渲染（**F7 修复前为空**） |
+| 详情页 | ✅ 3 作者、349 话、简介、标签、统计 |
+| 阅读器 | ✅ 页面图正常显示（**F8 + §10.4 修复前报「第 1 页加载失败」**） |
+| 评论区 | ✅ 用户名/昵称/日期/剧透折叠/点赞（**F9 修复前为空**） |
+| 设置页 | ✅ 显示 `v0.1.2`、当前生效域名 |
+| `/setting` 自愈 | ✅ 调试日志无 `/setting 刷新失败`（修复前每次启动都报） |
+| 应用内更新 | ✅ 0.1.0 → 0.1.1 全流程：检测 → 展示更新说明 → 下载 → 安装 |
+| 发布链路 | ✅ raw `update.json` 200；raw APK 200（6,446,754 B）；**下载后 sha256 == 声明值** |
+
+版本推进：`0.1.0`（基线）→ `0.1.1`（F6–F9 + 5xx 换域）→ `0.1.2`（图片 CDN 回退）。
+单测 24 → 46 个用例。
+
+### 10.6 新增/更新的工具
+
+| 工具 | 作用 |
+|---|---|
+| `tools/jm-dto-contract.mjs` | **新增**：DTO 声明 vs 线上形态逐字段对账，类型不符退出码 1 |
+| `tools/dump-fixtures.mjs` | 重写：真实响应 + 自由文本脱敏生成 fixture |
+| `tools/jm-lib.mjs` | 修正 5xx 不换域的行为偏差，与 App 对齐 |
+| `tools/oneoff/probe-setting.mjs` | 新增：本次事故的取证脚本（打印 /setting 各字段实际类型） |
+
+推荐提交前跑一遍：
+
+```bash
+node tools/jm-shape-probe.mjs --update   # 刷新线上形态基线
+node tools/jm-dto-contract.mjs           # DTO 与线上形态对账（离线、秒级）
+node tools/jm-api-check.mjs              # 端点能力与数值断言
+```
+
