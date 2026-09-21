@@ -1,7 +1,9 @@
 package com.jmread.core.model
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
@@ -12,6 +14,20 @@ import org.junit.Test
  * 于是 H24 档位改为由月榜数据本地按 `update_at` 重排得到，本文件固化这套规则。
  */
 class RankTabTest {
+
+    private lateinit var originalZone: java.util.TimeZone
+
+    /** 日期断言与本地时区相关，钉死时区避免在别的机器上飘 */
+    @Before
+    fun pinTimezone() {
+        originalZone = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Shanghai"))
+    }
+
+    @After
+    fun restoreTimezone() {
+        java.util.TimeZone.setDefault(originalZone)
+    }
 
     private fun comic(id: String, lastUpdatedAt: Long, title: String = id) =
         ComicSummary(id = id, title = title, lastUpdatedAt = lastUpdatedAt)
@@ -83,5 +99,36 @@ class RankTabTest {
         // 时间戳最大的 40 个（id100..id61）应排在最前
         assertEquals("id100", picked.first().id)
         assertEquals("id61", picked.last().id)
+    }
+
+    /**
+     * 展示用「更新时间」的取值优先级。
+     *
+     * 必须优先 update_at：列表的服务端顺序（浏览流 o=mr、榜单）是按 update_at 排的，
+     * 实测 o=mr 前 12 条 update_at 严格降序、adddate 完全乱序。
+     * 用反了会让「最新」列表显示一堆 2019/2020 年的日期。
+     */
+    @Test
+    fun `展示日期优先最近更新而不是原始发布日`() {
+        // update_at = 2026-09-20，adddate 是 2019 年的原始发布日 -> 取前者
+        assertEquals("2026-09-20", displayUpdatedAt(1789918565L, "2019-12-25"))
+    }
+
+    @Test
+    fun `update_at 缺失时才退回 adddate`() {
+        assertEquals("2019-12-25", displayUpdatedAt(0L, "2019-12-25"))
+        assertEquals("2019-12-25", displayUpdatedAt(-1L, "2019-12-25"))
+    }
+
+    @Test
+    fun `两者都缺时返回空串`() {
+        assertEquals("", displayUpdatedAt(0L, ""))
+    }
+
+    @Test
+    fun `formatUnixDate 处理边界值`() {
+        assertEquals("", formatUnixDate(0))
+        assertEquals("", formatUnixDate(-100))
+        assertEquals("2026-09-20", formatUnixDate(1789918565L))
     }
 }

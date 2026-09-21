@@ -14,6 +14,7 @@ import com.jmread.core.model.DailyCheckIn
 import com.jmread.core.model.PageResult
 import com.jmread.core.model.RankTab
 import com.jmread.core.model.WeekPeriod
+import com.jmread.core.model.displayUpdatedAt
 import com.jmread.core.model.pagesOf
 import com.jmread.core.model.pickNewArrivals
 import com.jmread.data.SecureAccountStore
@@ -25,9 +26,6 @@ import com.jmread.network.JmCrypto
 import com.jmread.network.JmException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -412,8 +410,8 @@ object JmRepository {
         author = author,
         coverUrl = JmCrypto.coverUrl(id),
         isFavourite = isFavorite,
-        updatedAt = if (adddate.isNotBlank()) adddate else formatDate(updateAt),
-        // 原始 update_at 单独保留：adddate 是老作品重传前的原始发布日，不能当「最近更新」用
+        updatedAt = displayUpdatedAt(updateAt, adddate),
+        // 原始 update_at 单独保留，供「新晋热榜」按最近更新排序
         lastUpdatedAt = updateAt,
         categoryName = category.titleText,
     )
@@ -483,9 +481,6 @@ object JmRepository {
     }
 
     private fun String.toLongSafe(): Long = trim().toLongOrNull() ?: 0L
-
-    private fun formatDate(ts: Long): String =
-        if (ts <= 0) "" else SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(ts * 1000))
 }
 
 /** 完整分类节点（分类页树） */

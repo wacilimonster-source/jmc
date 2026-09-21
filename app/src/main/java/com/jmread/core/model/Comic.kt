@@ -208,6 +208,25 @@ fun pickNewArrivals(pool: List<ComicSummary>, limit: Int, min: Int): List<ComicS
     return if (fresh.size >= min) fresh else pool.take(limit)
 }
 
+/** unix 秒 → "yyyy-MM-dd"；<= 0 返回空串 */
+fun formatUnixDate(ts: Long): String =
+    if (ts <= 0) "" else java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        .format(java.util.Date(ts * 1000))
+
+/**
+ * 卡片/详情展示用的「更新时间」串。
+ *
+ * **优先用 `update_at`（最近更新），只有它缺失时才退回 `adddate`（原始发布日）。**
+ * 这个优先级不能反：`adddate` 对老作品是**重传前的原始发布日**，
+ * 而列表的服务端顺序（浏览流 `o=mr`、榜单）是按 `update_at` 排的 ——
+ * 实测 `o=mr` 前 12 条的 `update_at` 严格降序，`adddate` 则完全乱序
+ * （2026-08-17 / 2026-07-27 / 2026-07-13 …）。
+ * 用反了会让「最新」列表显示一堆 2019/2020 年的日期，
+ * 详情页的「更新 …」、关注流的按更新排序也会一起错位。
+ */
+fun displayUpdatedAt(updateAt: Long, adddate: String): String =
+    formatUnixDate(updateAt).ifBlank { adddate }
+
 /** 用户（评论者） */
 data class ComicUser(
     val id: String = "",
