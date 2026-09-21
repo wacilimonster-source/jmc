@@ -31,15 +31,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jmread.core.JmRepository
 import com.jmread.core.model.ComicSummary
+import com.jmread.core.model.RankTab
 import com.jmread.ui.browse.ComicGridView
 import kotlinx.coroutines.launch
 
-private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
+/**
+ * 默认档位 = 新晋热榜（H24）。
+ *
+ * H24 不是服务端日榜（`o=mv_t` 实测恒空），而是由月榜数据本地重排得到，
+ * 因此不会为空 —— 详见 [com.jmread.core.model.RankTab]。
+ */
+private val DEFAULT_RANK_TYPE = RankTab.H24.value
 
-/** 默认档位 = 月榜：日榜(mv_t)/周榜(mv_w) 2026-09-21 实测线上返回空，理由见 HomeViewModel._rankType */
-private const val DEFAULT_RANK_TYPE = "D30"
-
-/** 排行榜：日榜 / 周榜 / 月榜（H24 / D7 / D30） */
+/** 排行榜：新晋热榜 / 周榜 / 月榜（H24 / D7 / D30），档位可用性由探测决定 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RankScreen(
@@ -48,6 +52,8 @@ fun RankScreen(
 ) {
     val scope = rememberCoroutineScope()
     var type by remember { mutableStateOf(DEFAULT_RANK_TYPE) }
+    // 乐观全集起步：探测结果回来前先按三档渲染，避免首屏无 tab
+    var tabs by remember { mutableStateOf(RankTab.optimistic) }
     var comics by remember { mutableStateOf<List<ComicSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -77,6 +83,19 @@ fun RankScreen(
 
     LaunchedEffect(Unit) { load(type) }
 
+    // 档位可用性探测：异步，收敛后隐藏空档位；若当前档位被移除则切到首个可用档位
+    LaunchedEffect(Unit) {
+        val available = runCatching { JmRepository.availableRankTabs() }
+            .getOrDefault(RankTab.optimistic)
+        if (available.isEmpty()) return@LaunchedEffect
+        tabs = available
+        if (available.none { it.value == type }) {
+            type = available.first().value
+            load(type)
+            listState.requestScrollToItem(0)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -94,16 +113,16 @@ fun RankScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             ) {
-                rankTypes.forEach { (value, label) ->
+                tabs.forEach { tab ->
                     FilterChip(
-                        selected = type == value,
+                        selected = type == tab.value,
                         onClick = {
-                            type = value
-                            load(value)
+                            type = tab.value
+                            load(tab.value)
                             // 切榜即回顶：新数据替换后网格会按索引保留位置，需显式重置
                             listState.requestScrollToItem(0)
                         },
-                        label = { Text(label) },
+                        label = { Text(tab.label) },
                     )
                 }
             }
@@ -116,7 +135,7 @@ fun RankScreen(
                 }
             } else if (comics.isEmpty() && !loading) {
                 // ComicGridView 自身没有空态处理，不拦这一层的话空列表会渲染成纯白区域。
-                // 日榜/周榜在 2026-09-21 线上就是返回空（见 HomeViewModel._rankType）。
+                // 档位可用性已由探测过滤，正常不会走到这里；留作探测失败时的兜底。
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(

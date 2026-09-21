@@ -37,6 +37,12 @@ const AS_JSON = argv.has('--json');
 const LINE = '─'.repeat(78);
 const checks = [];
 const check = (name, ok, detail = '') => checks.push({ name, ok, detail });
+/**
+ * 信息项：只报告状态、不计入通过率。
+ * 用于「已知死档位是否恢复」这类双向都算正常、但需要人看一眼的信号。
+ */
+const notes = [];
+const note = (name, detail = '') => notes.push({ name, detail });
 const pad = (s, n) => String(s ?? '').padEnd(n);
 const num = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : String(n ?? '-'));
 
@@ -165,13 +171,31 @@ const categories = await probe('/categories 分类树', '/categories', () => api
 const search = await probe('/search 综合维度', '/search?search_query=…&main_tag=0',
   () => api.search('姐姐', { mainTag: 0 }), 'content');
 
-// 排行榜三档：日/周/月各自都必须有数据（今天日榜周榜是空的，见下方不变量）
+// 排行榜：服务端真正可用的只有 周(mv_w) / 月(mv_m) 两档。
+// 日榜 mv_t 恒空 —— 参考实现 jm_config.py 的 ORDER_DAY_RANKING='mv_t' 确认参数没写错，
+// 是服务端该档没有数据。App 的「新晋热榜」档位不再直连它，而是由月榜数据本地按
+// update_at 重排得到（JmRepository.newArrivals），所以这里只把 mv_t 当信息项观察。
 const rankDay = await probe('/categories/filter 日榜 mv_t', '/categories/filter?page=1&o=mv_t&t=a',
   () => api.rank('mv_t'), 'content');
 const rankWeek = await probe('/categories/filter 周榜 mv_w', '/categories/filter?page=1&o=mv_w&t=a',
   () => api.rank('mv_w'), 'content');
 const rankMonth = await probe('/categories/filter 月榜 mv_m', '/categories/filter?page=1&o=mv_m&t=a',
   () => api.rank('mv_m'), 'content');
+
+// 「新晋热榜」的数据前提：月榜热度池里必须有足够多「最近有更新」的作品。
+// 该档位取月榜前 2 页按 update_at 倒序取前 40；池子若全是老作品，这个档位就名不副实。
+const monthPool = [];
+for (const p of [1, 2]) {
+  try {
+    const r = await api.rank('mv_m', p);
+    monthPool.push(...(r.envelope?.data?.content ?? r.envelope?.data?.list ?? []));
+  } catch { /* 单页失败不致命，下面按实际拿到的池子判定 */ }
+}
+const RECENT_WINDOW_S = 7 * 24 * 3600;
+const recentInPool = monthPool.filter((x) => {
+  const ts = Number(x?.update_at ?? 0);
+  return ts > 0 && Date.now() / 1000 - ts <= RECENT_WINDOW_S;
+}).length;
 
 const sampleAlbumId = firstId(browse1?.envelope) || firstId(search?.envelope);
 const album = sampleAlbumId
@@ -211,11 +235,26 @@ check('浏览流 total 不可信但页数可信（10000/80=125）',
   Math.ceil((b1?.total ?? 0) / PAGE_SIZE) === BROWSE_PAGE_LIMIT,
   `推得 ${Math.ceil((b1?.total ?? 0) / PAGE_SIZE)} 页`);
 
-// 排行三档各自必须有数据：首页默认 Tab 就是排行榜，任一一档空 = 用户首屏空白
-for (const [label, r] of [['日榜 mv_t', rankDay], ['周榜 mv_w', rankWeek], ['月榜 mv_m', rankMonth]]) {
+// 服务端两档真实榜单：任一一档空 = 对应档位在 App 里会显示空白
+for (const [label, r] of [['周榜 mv_w', rankWeek], ['月榜 mv_m', rankMonth]]) {
   const total = r?.envelope?.data?.total;
   check(`${label} 有数据且 total 真实`, typeof total === 'number' && total > 0 && total !== BROWSE_TOTAL_SENTINEL,
     total === 0 ? '⚠ 返回空列表，该档在 App 里会显示空白' : `total=${num(total)}`);
+}
+
+// 新晋热榜的数据前提（App 的 H24 档位由月榜本地重排得到）
+check('月榜热度池含足够「近 7 天有更新」作品（新晋热榜的数据前提）',
+  recentInPool >= 12,
+  `池 ${monthPool.length} 条，近 7 天有更新 ${recentInPool} 条`);
+
+// 日榜 mv_t：已知死档，恢复与否都只是信息 —— 恢复后应回来评估是否把 H24 切回直连
+{
+  const total = rankDay?.envelope?.data?.total;
+  if (total === 0) {
+    note('日榜 mv_t 仍为空', '已知死档；App 的「新晋热榜」用月榜本地重排替代');
+  } else {
+    note('日榜 mv_t 已恢复', `total=${num(total)} —— 可评估把 H24 档位切回直连 mv_t`);
+  }
 }
 
 check('搜索 total 是真实条数（≠10000）', search?.envelope?.data?.total !== BROWSE_TOTAL_SENTINEL,
@@ -342,7 +381,8 @@ const negAbsent = (label) => checks.find((c) => c.name.startsWith(label))?.ok ??
 // 实测列：true/false = 本次探测得出；null = 需要真实账号，本次无法验证，保持声明值
 const capabilities = [
   ['hasBrowse', true, !!browse1],
-  ['hasRank', true, [rankDay, rankWeek, rankMonth].every((r) => (r?.envelope?.data?.total ?? 0) > 0)],
+  // 榜单：App 只用 周(mv_w)/月(mv_m) 两档，H24 由月榜本地重排 —— 不再要求 mv_t 有数据
+  ['hasRank', true, [rankWeek, rankMonth].every((r) => (r?.envelope?.data?.total ?? 0) > 0)],
   ['hasTagWall', true, (categories?.envelope?.data?.blocks?.length ?? 0) > 0],
   ['hasWeeklyPicks', true, (week?.envelope?.data?.categories?.length ?? 0) > 0],
   ['hasRelated', true, (ad?.related_list?.length ?? 0) > 0],
@@ -388,12 +428,15 @@ const failed = checks.filter((c) => !c.ok);
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
 if (AS_JSON) {
-  console.log(JSON.stringify({ rows, checks, hostStats: [...api.hostStats], elapsed }, null, 2));
+  console.log(JSON.stringify({ rows, checks, notes, hostStats: [...api.hostStats], elapsed }, null, 2));
 } else {
   console.log('\n' + LINE);
   console.log(`[6] 断言汇总   ${checks.length - failed.length}/${checks.length} 通过   请求 ${api.requestCount} 次   耗时 ${elapsed}s`);
   for (const c of checks) {
     if (!c.ok) console.log(`  FAIL  ${c.name}${c.detail ? '   → ' + c.detail : ''}`);
+  }
+  for (const n of notes) {
+    console.log(`  INFO  ${n.name}${n.detail ? '   → ' + n.detail : ''}`);
   }
   const stats = [...api.hostStats].map(([h, s]) => `${h}(${s.ok}✓${s.fail}✗)`).join('  ');
   console.log(`  域名使用：${stats || '(无)'}`);

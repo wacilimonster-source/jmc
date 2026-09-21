@@ -39,11 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.ui.browse.ComicGridView
 
-private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
-
 /**
  * 首页：顶部标签「关注 / 排行榜 / 每周必看」。
- * 排行榜（默认，index=1）：日榜 / 周榜 / 月榜切换，total 为真实命中数。
+ * 排行榜（默认，index=1）：档位由 ViewModel 探测后给出（见 RankTab），total 为真实命中数。
  * 关注：关注信息流（作者/关键词/分类标签最新更新的聚合网格）。
  * 每周必看：期数切换 + 该期内容流（/week，禁漫独有内容位）。
  */
@@ -59,6 +57,7 @@ fun HomeScreen(
     val followError by viewModel.followError.collectAsState()
     val rankComics by viewModel.rankComics.collectAsState()
     val rankType by viewModel.rankType.collectAsState()
+    val rankTabs by viewModel.rankTabs.collectAsState()
     val rankLoading by viewModel.rankLoading.collectAsState()
     val rankError by viewModel.rankError.collectAsState()
     val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
@@ -109,6 +108,8 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         com.jmread.core.update.UpdateState.checkOnce()
         viewModel.ensureFollowTargets()
+        // 榜单档位可用性探测：异步，不阻塞首屏（初值是乐观全集）
+        viewModel.ensureRankTabs()
         // 首屏默认落在排行榜（selectedTab=1），它是唯一可见内容，立即开跑；
         // 关注流稍后启动（后台，延迟对用户不可感知）
         if (selectedTab == 1) kotlinx.coroutines.delay(1_200)
@@ -202,6 +203,7 @@ fun HomeScreen(
             1 -> RankTab(
                 rankComics = rankComics,
                 rankType = rankType,
+                rankTabs = rankTabs,
                 rankTotal = rankTotal,
                 loading = rankLoading,
                 error = rankError,
@@ -307,6 +309,7 @@ private fun FollowTab(
 private fun RankTab(
     rankComics: List<com.jmread.core.model.ComicSummary>,
     rankType: String,
+    rankTabs: List<com.jmread.core.model.RankTab>,
     rankTotal: Int,
     loading: Boolean,
     error: String?,
@@ -331,11 +334,11 @@ private fun RankTab(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            rankTypes.forEach { (value, label) ->
+            rankTabs.forEach { tab ->
                 FilterChip(
-                    selected = rankType == value,
-                    onClick = { onTypeChange(value) },
-                    label = { Text(label) },
+                    selected = rankType == tab.value,
+                    onClick = { onTypeChange(tab.value) },
+                    label = { Text(tab.label) },
                 )
             }
         }

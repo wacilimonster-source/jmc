@@ -30,6 +30,12 @@ object JmCapabilities {
 
     // ---------- 内容位 ----------
     const val hasBrowse = true
+    /**
+     * 榜单：服务端真实可用的只有 周(`o=mv_w`) / 月(`o=mv_m`) 两档。
+     * 日榜 `o=mv_t` 恒空（参考实现 jm_config.py 确认参数无误，是服务端无数据），
+     * App 的「新晋热榜」档位由月榜数据本地按 `update_at` 重排得到，不直连 mv_t。
+     * 档位是否展示由 JmRepository.availableRankTabs 探测决定，不写死。
+     */
     const val hasRank = true
     const val hasWeeklyPicks = true
     const val hasTagWall = true

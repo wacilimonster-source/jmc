@@ -12,10 +12,13 @@ import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.ComicUser
 import com.jmread.core.model.DailyCheckIn
 import com.jmread.core.model.PageResult
+import com.jmread.core.model.RankTab
 import com.jmread.core.model.WeekPeriod
 import com.jmread.core.model.pagesOf
+import com.jmread.core.model.pickNewArrivals
 import com.jmread.data.SecureAccountStore
 import com.jmread.data.SourcePrefs
+import com.jmread.network.JmAlbumSummary
 import com.jmread.network.JmCategoriesResponse
 import com.jmread.network.JmClient
 import com.jmread.network.JmCrypto
@@ -39,6 +42,18 @@ object JmRepository {
     // ---------- album 短 TTL 内存缓存（详情页会以同一 id 请求 2~3 次） ----------
     private val albumCache = ConcurrentHashMap<String, Pair<Long, com.jmread.network.JmAlbumResponse>>()
     private const val ALBUM_TTL_MS = 120_000L
+
+    /** 「新晋热榜」热度池页数（月榜前 2 页 = 160 条） */
+    private const val NEW_ARRIVAL_POOL_PAGES = 2
+    /** 「新晋热榜」展示条数 */
+    private const val NEW_ARRIVAL_LIMIT = 40
+    /** 按最近更新排序后的条数低于此值就回退成月榜原序，避免出现稀疏列表 */
+    private const val NEW_ARRIVAL_MIN = 12
+    /** 榜单档位能力探测的缓存时长（与 /setting 刷新同频） */
+    private const val RANK_PROBE_TTL_MS = 6 * 60 * 60 * 1000L
+
+    /** 榜单档位探测结果缓存：(探测时刻, 可用档位) */
+    @Volatile private var rankProbeCache: Pair<Long, List<RankTab>>? = null
 
     private suspend fun albumCached(albumId: String): com.jmread.network.JmAlbumResponse {
         val now = System.currentTimeMillis()
@@ -176,18 +191,74 @@ object JmRepository {
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
 
-    /** 排行榜：H24→mv_t / D7→mv_w / D30→mv_m，total 真实 */
+    /**
+     * 排行榜。
+     *
+     * H24（新晋热榜）不是服务端档位：日榜 `o=mv_t` 实测恒空，见 [newArrivals]。
+     * D7/D30 走服务端 `o=mv_w` / `o=mv_m`，total 真实。
+     */
     suspend fun rank(type: String, page: Int = 1): PageResult<ComicSummary> {
-        val order = when (type) {
-            "H24" -> "mv_t"
-            "D7" -> "mv_w"
-            "D30" -> "mv_m"
-            else -> "mv_t"
-        }
+        val tab = RankTab.of(type)
+        val order = tab.order ?: return newArrivals()
+        return serverRank(order, page)
+    }
+
+    private suspend fun serverRank(order: String, page: Int): PageResult<ComicSummary> {
         val data = JmClient.rankList(order, page)
         val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
+    }
+
+    /**
+     * 新晋热榜：热门池里「最近有更新」的作品。
+     *
+     * 为什么这么实现：禁漫的日榜端点 `o=mv_t` 已死（total=0，连测稳定），
+     * 而 `t=` 时间段参数在移动端接口上完全无效（t=t/w/m/a 四值返回结果一模一样），
+     * 所以拿不到真正的「今日」榜单。改用月榜前 2 页当热度池（160 条），
+     * 按 `update_at` 倒序取前 [NEW_ARRIVAL_LIMIT] 条 —— 实测该池内近 24h 有更新 29 条、
+     * 近 7 天 108 条，取 40 条刚好覆盖最近一两天，语义上最接近「日榜」。
+     *
+     * 保证非空：池子拿到但排序结果不足下限时，回退成月榜原始顺序，
+     * 避免又出现首屏空白（F1 复发）。
+     */
+    private suspend fun newArrivals(): PageResult<ComicSummary> {
+        val pool = ArrayList<JmAlbumSummary>()
+        for (page in 1..NEW_ARRIVAL_POOL_PAGES) {
+            val items = runCatching { JmClient.rankList("mv_m", page).data.items }.getOrNull()
+            if (items != null) pool.addAll(items)
+        }
+        val items = pickNewArrivals(
+            pool = pool.distinctBy { it.id }.map { it.toSummary() },
+            limit = NEW_ARRIVAL_LIMIT,
+            min = NEW_ARRIVAL_MIN,
+        )
+        return PageResult(items.dedupeById(), 1, 1, total = items.size)
+    }
+
+    /**
+     * 榜单档位能力探测：哪些档位线上真的有数据。
+     *
+     * 存在的理由：档位写死过一次就出过空 tab（日榜 mv_t 恒空，首屏一片空白）。
+     * 探测结果缓存 [RANK_PROBE_TTL_MS]，与 /setting 刷新同频；失败时乐观返回全部档位，
+     * 宁可多显示一个可能为空的档位，也不要因为探测失败把能用的档位也藏起来。
+     */
+    suspend fun availableRankTabs(force: Boolean = false): List<RankTab> {
+        val now = System.currentTimeMillis()
+        rankProbeCache?.let { (at, cached) ->
+            if (!force && now - at < RANK_PROBE_TTL_MS) return cached
+        }
+        val hasMonth = runCatching { serverRank("mv_m", 1).items.isNotEmpty() }.getOrDefault(false)
+        val hasWeek = runCatching { serverRank("mv_w", 1).items.isNotEmpty() }.getOrDefault(false)
+        // 新晋热榜的数据来自月榜，月榜有它就一定非空
+        val tabs = buildList {
+            if (hasMonth) add(RankTab.H24)
+            if (hasWeek) add(RankTab.D7)
+            if (hasMonth) add(RankTab.D30)
+        }
+        val result = tabs.ifEmpty { RankTab.optimistic }
+        rankProbeCache = now to result
+        return result
     }
 
     /** 随机推荐：本源无该端点（/random Not legal）——能力位 false，UI 不出现 */
@@ -342,6 +413,8 @@ object JmRepository {
         coverUrl = JmCrypto.coverUrl(id),
         isFavourite = isFavorite,
         updatedAt = if (adddate.isNotBlank()) adddate else formatDate(updateAt),
+        // 原始 update_at 单独保留：adddate 是老作品重传前的原始发布日，不能当「最近更新」用
+        lastUpdatedAt = updateAt,
         categoryName = category.titleText,
     )
 

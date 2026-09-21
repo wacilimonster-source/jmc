@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jmread.core.JmRepository
 import com.jmread.core.model.ComicSort
 import com.jmread.core.model.ComicSummary
+import com.jmread.core.model.RankTab
 import com.jmread.core.model.WeekPeriod
 import com.jmread.core.model.sortedByComicSort
 import com.jmread.data.AuthorFavourites
@@ -91,17 +92,43 @@ class HomeViewModel : ViewModel() {
     val rankComics: StateFlow<List<ComicSummary>> = _rankComics.asStateFlow()
 
     /**
-     * 默认档位 = 月榜（D30 → mv_m）。
+     * 默认档位 = 新晋热榜（H24）。
      *
-     * 为什么不默认日榜：2026-09-21 实测线上 `o=mv_t`（日）与 `o=mv_w`（周）
-     * 稳定返回 total=0 空列表，只有 `o=mv_m`（月）有数据（total=3498）。
-     * 参数名本身没错（两个参考库 JMComic-Crawler-Python / JMComic-qt 均确认），
-     * 是服务端这两档暂时没有数据。首页默认 Tab 就是排行榜，
-     * 若默认落在日榜，用户首屏看到的是「暂无数据」。
-     * 服务端恢复后把这里改回 "H24" 即可。
+     * 历史：这里曾默认月榜，因为 2026-09-21 实测线上 `o=mv_t`（日）与 `o=mv_w`（周）
+     * 都返回 total=0。后续复测发现 **周榜已恢复**（`o=mv_w` 稳定 32 条），
+     * 只有日榜 `o=mv_t` 是真死（参考库 jm_config.py 的 `ORDER_DAY_RANKING='mv_t'` 确认参数没错）。
+     * 现在 H24 不再直连服务端日榜，而是由月榜数据本地重排得到（见 JmRepository.newArrivals），
+     * 因此可以安全地当默认档位 —— 它不会为空。
      */
-    private val _rankType = MutableStateFlow("D30")
+    private val _rankType = MutableStateFlow(RankTab.H24.value)
     val rankType: StateFlow<String> = _rankType.asStateFlow()
+
+    /**
+     * 当前可用的榜单档位。
+     *
+     * 初值是「乐观全集」：先按三档渲染，避免等探测回来才出 tab（首屏空白）。
+     * 探测完成后收敛到线上真有数据的档位；若正选中的档位被判定不可用，自动切到首个可用档位。
+     * 详见 [JmRepository.availableRankTabs]。
+     */
+    private val _rankTabs = MutableStateFlow(RankTab.optimistic)
+    val rankTabs: StateFlow<List<RankTab>> = _rankTabs.asStateFlow()
+
+    private var rankTabsProbed = false
+
+    /** 探测榜单档位可用性。失败时保持乐观全集：宁可多一个空档位，也不藏掉能用的档位。 */
+    fun ensureRankTabs() {
+        if (rankTabsProbed) return
+        rankTabsProbed = true
+        viewModelScope.launch {
+            val tabs = runCatching { JmRepository.availableRankTabs() }
+                .getOrDefault(RankTab.optimistic)
+            if (tabs.isEmpty()) return@launch
+            _rankTabs.value = tabs
+            if (tabs.none { it.value == _rankType.value }) {
+                loadRank(tabs.first().value, force = true)
+            }
+        }
+    }
 
     private val _rankLoading = MutableStateFlow(false)
     val rankLoading: StateFlow<Boolean> = _rankLoading.asStateFlow()

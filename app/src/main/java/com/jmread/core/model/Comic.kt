@@ -24,6 +24,16 @@ data class ComicSummary(
     val tags: List<String> = emptyList(),
     /** 更新时间（"yyyy-MM-dd..." ISO 前缀，用于日期范围筛选；源不支持时为空） */
     val updatedAt: String = "",
+    /**
+     * 服务端「最近一次有更新」的 unix 秒时间戳（列表接口的 `update_at`）。
+     *
+     * ⚠ 与 [updatedAt] 不是一回事：[updatedAt] 是展示/排序用的日期串，列表接口优先取
+     * `adddate`（作品**首次发布**日）；本字段是**最近一次更新**的时间。
+     * 禁漫对老作品重传时 `adddate` 仍是原始发布日 —— 实测月榜前 160 条里
+     * 近 7 天「发布」的只有 3 条，而近 7 天「有更新」的有 108 条。
+     * 「新晋热榜」按本字段排序，不能用 [updatedAt]。
+     */
+    val lastUpdatedAt: Long = 0,
     /** 服务端收藏态（读侧回填，无需写权限） */
     val isFavourite: Boolean = false,
     /** 大分类名（category.title，列表卡片角标用） */
@@ -149,6 +159,53 @@ enum class ComicStatus(val label: String) {
     ALL("全部"),
     FINISHED("已完结"),
     ONGOING("连载中"),
+}
+
+/**
+ * 榜单档位。
+ *
+ * ⚠ [H24] **不是服务端档位**：禁漫的日榜 `o=mv_t` 实测恒空（`total=0`，连测 6 轮稳定，
+ * 参考实现 jm_config.py 里 `ORDER_DAY_RANKING='mv_t'` 确认参数没写错）。
+ * 本档位由月榜数据**本地重排**得到 —— 取月榜前 2 页（160 条热度池），
+ * 按「最近更新」倒序取前 40，即「热门里最近有更新的」。
+ *
+ * [D7]/[D30] 是真实的服务端榜单（`o=mv_w` / `o=mv_m`，total 真实）。
+ * 档位是否可用由 [com.jmread.core.JmRepository.availableRankTabs] 探测决定，
+ * 不写死 —— 服务端砍榜时该档位自动隐藏，不会出现空列表。
+ */
+enum class RankTab(
+    val value: String,
+    val label: String,
+    val hint: String,
+    /** 对应的服务端 `o=` 参数；null = 本档位由月榜数据本地重排得到，没有服务端参数 */
+    val order: String?,
+) {
+    H24("H24", "新晋热榜", "热门里最近更新的", null),
+    D7("D7", "周榜", "本周最多观看", "mv_w"),
+    D30("D30", "月榜", "本月最多观看", "mv_m"),
+    ;
+
+    companion object {
+        fun of(value: String?): RankTab = entries.firstOrNull { it.value == value } ?: D30
+
+        /** 乐观默认档位表（探测结果回来前先按这个渲染，避免首屏空 tab） */
+        val optimistic: List<RankTab> = entries.toList()
+    }
+}
+
+/**
+ * 从热度池里挑「新晋热榜」（[RankTab.H24] 的数据来源）。
+ *
+ * 按 [ComicSummary.lastUpdatedAt] 倒序取前 [limit] 条；
+ * 若排序后不足 [min] 条（池子太旧或时间戳缺失），回退成池子原序的前 [limit] 条 ——
+ * 宁可退化成「月榜前 N」，也不能返回稀疏列表或空列表（F1 首屏空白就是这么来的）。
+ *
+ * 纯函数，不依赖网络与 DTO，便于单测。
+ */
+fun pickNewArrivals(pool: List<ComicSummary>, limit: Int, min: Int): List<ComicSummary> {
+    if (pool.isEmpty()) return emptyList()
+    val fresh = pool.sortedByDescending { it.lastUpdatedAt }.take(limit)
+    return if (fresh.size >= min) fresh else pool.take(limit)
 }
 
 /** 用户（评论者） */
