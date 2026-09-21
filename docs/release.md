@@ -110,6 +110,18 @@ node tools/jm-api-check.mjs              # 端点能力与数值断言
 APK 必须提交到仓库根目录才能被 raw 直链访问（PiKA 也是这个做法）。
 `gbuild.sh release` 会自动产出这个文件名的 APK。
 
+> **旧 APK 要定期清理**。每个 APK 约 6.1 MB，发几版就会明显撑大仓库。
+> `update.json` 只指向最新那个，旧版本的 raw 直链没有消费者
+> （已升级的用户不再需要，未升级的用户会被引导升到最新），
+> 所以只保留最近 1~2 个即可，其余删掉 —— git 历史里仍然可找回。
+>
+> ```bash
+> # 保留最新一个，删除其余（先 ls 确认再执行）
+> ls jm-reader-v*.apk
+> git rm jm-reader-v0.1.0.apk jm-reader-v0.1.1.apk jm-reader-v0.1.2.apk jm-reader-v0.1.3.apk
+> git commit -m "chore: 清理已废弃的 release APK"
+> ```
+
 ---
 
 ## 4. 分发边界
