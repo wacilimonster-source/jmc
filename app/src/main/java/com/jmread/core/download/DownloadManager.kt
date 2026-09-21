@@ -3,6 +3,7 @@ package com.jmread.core.download
 import android.content.Context
 import com.jmread.core.log.LogStore
 import com.jmread.core.JmRepository
+import com.jmread.core.netconfig.DomainPool
 import com.jmread.core.scramble.ImageScrambler
 import com.jmread.network.BcTls
 import kotlinx.coroutines.CoroutineScope
@@ -370,8 +371,31 @@ object DownloadManager {
     /**
      * 下载单个文件（BouncyCastle TLS，绕 Cloudflare）。runTag 用于隔离并发执行的半成品文件。
      * 落盘前做乱序判定与还原（离线阅读必须与在线一致），扩展名按魔数定（实际为 webp）。
+     *
+     * 图片 CDN 失败时换下一个 host 重试：CDN 域名与 API 是两套，
+     * 且各 CDN 会按区域被 DNS 屏蔽（实测 *.jmapiproxy3.cc 被解析到 127.0.0.1）。
+     * 只试一个 host 的话，整本书的下载会卡在同一个不可用 CDN 上。
      */
     private fun downloadFile(urlStr: String, dest: File, runTag: String): Long {
+        val first = URL(urlStr)
+        // 各 CDN 的路径完全一致（/media/photos/{id}/{file}），只换 host 即可
+        val pathAndQuery = first.file
+        var lastError: Exception? = null
+        for (host in DomainPool.imageHostOrder(first.host)) {
+            try {
+                val size = fetchToFile("https://$host$pathAndQuery", dest, runTag)
+                DomainPool.markImageGood(host)
+                return size
+            } catch (e: Exception) {
+                lastError = e
+                DomainPool.markImageBad(host)
+                LogStore.log("jm-dl", "WARN", "下载图片 CDN $host 失败，换下一条线路：${e.message?.take(70)}")
+            }
+        }
+        throw lastError ?: IOException("下载失败（所有 CDN 均不可用）: $urlStr")
+    }
+
+    private fun fetchToFile(urlStr: String, dest: File, runTag: String): Long {
         val url = URL(urlStr)
         val conn: HttpURLConnection = if (url.protocol == "https") {
             BcTls.openConnection(url)

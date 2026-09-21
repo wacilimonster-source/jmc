@@ -41,6 +41,9 @@ object DomainPool {
 
     @Volatile private var imgHosts: List<String> = BUILTIN_IMAGE_HOSTS
 
+    /** 图片 CDN 的回避期表（与 API 的 badUntil 分开：图片走独立 CDN，故障互不相关） */
+    @Volatile private var badImageUntil: Map<String, Long> = emptyMap()
+
     /** 供 UI 展示的当前生效域名（不含 scheme） */
     val currentApiHost: String
         get() {
@@ -58,12 +61,48 @@ object DomainPool {
     /**
      * 取图片 host：按 id 的稳定散列分流 + host 存活顺序表。
      * 与服务端无关的稳定选择，保证同一本书的图稳定走同一 host，利于磁盘缓存与排查。
+     *
+     * 散列池排除处于回避期的 host：否则散列可能选中一个已知不可用的 CDN，
+     * 该书的图会一直加载失败（实测 /setting 下发的 img_host 每次请求都可能不同，
+     * 而 CDN 会按区域/线路被 DNS 或运营商屏蔽）。
      */
     fun imageHostFor(id: String): String {
         val hosts = imgHosts
-        val idx = (id.hashCodeMod(hosts.size) + badUntil.count { System.currentTimeMillis() < it.value })
-            .mod(hosts.size)
-        return hosts[idx]
+        if (hosts.isEmpty()) return BUILTIN_IMAGE_HOSTS.first()
+        val now = System.currentTimeMillis()
+        val healthy = hosts.filter { (badImageUntil[it] ?: 0L) <= now }
+        val pool = healthy.ifEmpty { hosts }
+        return pool[id.hashCodeMod(pool.size)]
+    }
+
+    /**
+     * 图片 host 的尝试顺序：当前 host 优先（保持缓存命中），其余按健康度排序，
+     * 坏 host 排到最后当兜底（不删——所有 host 都坏时总得试一个）。
+     *
+     * 存在的理由：图片 CDN 与 API 是两套域名，[markBad] 只管 API 域。
+     * 早期版本图片只请求一个 host，失败就直接报「加载失败」，
+     * 导致某个 CDN 被屏蔽时整本书的图都打不开且永不恢复。
+     */
+    fun imageHostOrder(current: String): List<String> {
+        val now = System.currentTimeMillis()
+        val (healthy, dead) = imgHosts.partition { (badImageUntil[it] ?: 0L) <= now }
+        fun put(head: List<String>, h: String) = head.filter { it == h } + head.filter { it != h }
+        val ordered = put(healthy, current) + put(dead, current)
+        return ordered.distinct().ifEmpty { listOf(current) }
+    }
+
+    /** 图片 host 请求成功：解除回避 */
+    fun markImageGood(host: String) {
+        synchronized(this) {
+            if (badImageUntil.isNotEmpty()) badImageUntil = badImageUntil - host
+        }
+    }
+
+    /** 图片 host 请求失败：立即打入回避期（图片是高频请求，不累计阈值） */
+    fun markImageBad(host: String) {
+        synchronized(this) {
+            badImageUntil = badImageUntil + (host to System.currentTimeMillis() + BAD_HOST_BACKOFF_MS)
+        }
     }
 
     /** 换域成功 / 请求成功时调用：记下可用 host */
@@ -125,6 +164,7 @@ object DomainPool {
             failCount = 0
             badUntil = emptyMap()
             imgHosts = BUILTIN_IMAGE_HOSTS
+            badImageUntil = emptyMap()
         }
     }
 

@@ -8,9 +8,12 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.key.Keyer
 import coil.request.Options
+import com.jmread.core.log.LogStore
+import com.jmread.core.netconfig.DomainPool
 import com.jmread.network.BcTls
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okio.Buffer
 import java.io.IOException
@@ -68,7 +71,37 @@ class JmImageFetcher(
         )
     }
 
+    /**
+     * 下载图片：失败时换下一个图片 CDN 重试。
+     *
+     * 图片 CDN 与 API 是两套域名（API 走 www.cdngwc.*，图片走 cdn-msp*），
+     * 故障互不相关；而 /setting 下发的 img_host 每次请求都可能不同，
+     * 各 CDN 又会按区域被 DNS/运营商屏蔽（实测本机 *.jmapiproxy3.cc 被解析到 127.0.0.1）。
+     * 早期版本只请求一个 host，失败即报「加载失败」，整本书的图永不恢复。
+     */
     private fun download(url: String): ByteArray {
+        val parsed = url.toHttpUrlOrNull() ?: throw IOException("非法图片 URL: $url")
+        // 各 CDN 的路径完全一致（/media/photos/{id}/{file}），只换 host 即可
+        val pathAndQuery = parsed.encodedPath + (parsed.encodedQuery?.let { "?$it" } ?: "")
+        var lastError: Exception? = null
+        for (host in DomainPool.imageHostOrder(parsed.host)) {
+            try {
+                val bytes = fetchOnce("https://$host$pathAndQuery")
+                DomainPool.markImageGood(host)
+                return bytes
+            } catch (e: Exception) {
+                lastError = e
+                DomainPool.markImageBad(host)
+                LogStore.log(
+                    "jm-img", "WARN",
+                    "图片 CDN $host 失败，换下一条线路：${e.message?.take(70)}",
+                )
+            }
+        }
+        throw lastError ?: IOException("图片加载失败（所有 CDN 均不可用）: $url")
+    }
+
+    private fun fetchOnce(url: String): ByteArray {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "okhttp/4.12.0")

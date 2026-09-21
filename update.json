@@ -1,6 +1,6 @@
 {
-  "sha256": "c9867daa0a460945b62f14ccff4ddccec88ec0f5518387eaaa899cb4e58ab217",
-  "version": "0.1.1",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.1.1.apk",
-  "notes": "JM Reader 0.1.1 —— 修 4 个「整包解析失败」级故障\n\n本版修的都是同一类问题：DTO 字段类型与线上实际形态不符，导致整个接口响应解析失败，\n而调用方把异常吞掉，表现为「点了没反应 / 列表空白」而不是报错。\n\n1. /setting 解析失败 → 域名四级自愈整条链路失效（含签名版本号不再刷新）\n   原因：app_shunts 线上是对象数组 [{title,key}]，DTO 写成了字符串数组。\n2. /categories 解析失败 → 分类列表静默变空\n   原因：首条「最新A漫」的 id 线上是裸数字 0，DTO 声明 String。\n3. /chapter 解析失败 → 阅读器打不开任何一章\n   原因：章节 id 线上是裸数字，DTO 声明 String。\n4. /forum 解析失败 → 评论页全空\n   原因：expinfo.badges 线上是对象数组 [{content,name,id}]，DTO 写成了字符串数组。\n\n加固：\n5. HTTP 5xx / 429 现在会换线路重试（此前被当成业务错误直接上抛）。\n   实测 /search 会在 4 个镜像上随机返回 500，不换域时搜索约 40% 概率直接报错。\n6. /setting 严格解析失败时降级为宽松提取，单个字段形态再变也不会让自愈链路整体失效。\n\n工程质量：\n7. 新增 DTO 契约校验（tools/jm-dto-contract.mjs）：自动对账 Kotlin 声明与线上实测形态，\n   这类「声明类型与线上不符」的 bug 以后在提交前就会被拦下。\n8. 测试 fixture 改为由真实响应生成（自由文本脱敏），不再手写；\n   单测从 24 个增至 42 个。\n\n已知问题：排行榜「日榜 / 周榜」当前服务端无数据，默认展示月榜。\n登录侧能力（云端收藏 / 签到 / 云端历史 / 发评论）尚未开放。"
+  "sha256": "569a65576d1b3f5f4f17df9a1783232d36632dc0c75f165c19bac645046bedd0",
+  "version": "0.1.2",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.1.2.apk",
+  "notes": "JM Reader 0.1.2 —— 图片 CDN 失败自动换线路\n\n本版修的是「DTO 类型」之外的第二个静默故障族：单个线路故障导致整本书打不开。\n\n1. 图片加载改为多 CDN 回退。此前每张图只请求一个散列选中的图片 CDN，\n   失败就直接报「第 N 页加载失败」，且永不恢复。\n   实测：本机 DNS 把 *.jmapiproxy3.cc 解析到 127.0.0.1（被运营商/代理屏蔽），\n   而 /setting 下发的 img_host 每次请求都可能不同 —— 一旦散列命中坏 CDN，整本书的图全打不开。\n   现在失败会换下一条 CDN，并把坏 CDN 打入 10 分钟回避期、散列池排除它。\n2. 章节下载（离线阅读）同样改为多 CDN 回退，避免整本下载卡在同一个坏 CDN 上。\n3. 图片 CDN 的回避表与 API 域名的回避表分开维护：两套域名故障互不相关，\n   混在一起会让 API 换域误伤图片线路（反之亦然）。\n\n上一版（0.1.1）修的 4 个 DTO 类型错误仍然生效：\n/setting 域名自愈、/categories 分类列表、/chapter 阅读器、/forum 评论页。\n\n测试 42 -> 46 个用例，全绿。\n\n已知问题：排行榜「日榜 / 周榜」当前服务端无数据，默认展示月榜。\n登录侧能力（云端收藏 / 签到 / 云端历史 / 发评论）尚未开放。"
 }
