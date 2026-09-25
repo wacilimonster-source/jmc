@@ -16,6 +16,8 @@ private object Keys {
     val JM_TOKEN = stringPreferencesKey("jm_token")
     /** 登录账号名（仅展示用） */
     val JM_ACCOUNT = stringPreferencesKey("jm_account")
+    /** 登录用户 uid（/daily?user_id= 等端点必传；2026-09-25 实测） */
+    val JM_UID = stringPreferencesKey("jm_uid")
     /** 用户手填 API 域名（空 = 自动） */
     val JM_BASE = stringPreferencesKey("jm_base")
     /** /setting 下发的 base_url（最近一次成功解析值） */
@@ -52,6 +54,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
     // ---------- 内存缓存（热点值） ----------
     @Volatile private var cachedToken: String? = null
     @Volatile private var cachedAccount: String? = null
+    @Volatile private var cachedUid: String? = null
     @Volatile private var cachedManualBase: String? = null
     @Volatile private var cachedResolvedBase: String? = null
     @Volatile private var cachedResolvedImg: String? = null
@@ -64,6 +67,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
                 val prefs = appContext.dataStore.data.first()
                 cachedToken = prefs[Keys.JM_TOKEN]?.takeIf { it.isNotEmpty() }
                 cachedAccount = prefs[Keys.JM_ACCOUNT]
+                cachedUid = prefs[Keys.JM_UID]?.takeIf { it.isNotEmpty() }
                 cachedManualBase = prefs[Keys.JM_BASE]?.takeIf { it.isNotEmpty() }
                 cachedResolvedBase = prefs[Keys.JM_RESOLVED_BASE]?.takeIf { it.isNotEmpty() }
                 cachedResolvedImg = prefs[Keys.JM_RESOLVED_IMG]?.takeIf { it.isNotEmpty() }
@@ -85,21 +89,32 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
     val jmAccount: String? get() = cachedAccount
 
-    suspend fun setJmLogin(token: String, account: String) {
+    /** 登录用户 uid（未登录/旧会话为 null——签到月历需要它） */
+    val jmUid: String?
+        get() = cachedUid
+            ?: runBlocking {
+                appContext.dataStore.data.first()[Keys.JM_UID]?.takeIf { it.isNotEmpty() }
+            }
+
+    suspend fun setJmLogin(token: String, account: String, uid: String = "") {
         cachedToken = token
         cachedAccount = account
+        cachedUid = uid.takeIf { it.isNotEmpty() }
         appContext.dataStore.edit {
             it[Keys.JM_TOKEN] = token
             it[Keys.JM_ACCOUNT] = account
+            if (uid.isNotEmpty()) it[Keys.JM_UID] = uid
         }
     }
 
     suspend fun clearJmLogin() {
         cachedToken = null
         cachedAccount = null
+        cachedUid = null
         appContext.dataStore.edit {
             it.remove(Keys.JM_TOKEN)
             it.remove(Keys.JM_ACCOUNT)
+            it.remove(Keys.JM_UID)
         }
     }
 

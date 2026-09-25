@@ -127,10 +127,47 @@ fun MainScreen() {
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
+                    onOpenPromote = { navController.navigate("promote") },
+                    onOpenChannel = { id ->
+                        navController.navigate("channel/${Uri.encode(id)}")
+                    },
+                    onOpenWeekly = { navController.navigate("weekly") },
+                    onOpenFollow = { navController.navigate("follow-feed") },
                 )
             }
-            composable("rank") {
-                com.jmread.ui.rank.RankScreen(
+            composable("promote") {
+                com.jmread.ui.channel.PromoteScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate(comicRoute(id))
+                    },
+                )
+            }
+            composable(
+                "channel/{channelId}",
+                arguments = listOf(
+                    navArgument("channelId") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val channelId = entry.arguments?.getString("channelId") ?: return@composable
+                com.jmread.ui.channel.ChannelScreen(
+                    channelId = channelId,
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate(comicRoute(id))
+                    },
+                )
+            }
+            composable("weekly") {
+                com.jmread.ui.weekly.WeeklyScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate(comicRoute(id))
+                    },
+                )
+            }
+            composable("follow-feed") {
+                com.jmread.ui.follow.FollowFeedScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
@@ -175,6 +212,8 @@ fun MainScreen() {
                     },
                     onOpenLogin = { navController.navigate("login") { launchSingleTop = true } },
                     onOpenRecentReads = { navController.navigate("recent-reads") },
+                    onOpenCloudFavourites = { navController.navigate("cloud-favourites") },
+                    onOpenCloudHistory = { navController.navigate("cloud-history") },
                 )
             }
             composable("recent-reads") {
@@ -195,6 +234,18 @@ fun MainScreen() {
             }
             composable("bookmarks") {
                 com.jmread.ui.favourite.BookmarkScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
+                )
+            }
+            composable("cloud-favourites") {
+                com.jmread.ui.favourite.CloudFavouritesScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
+                )
+            }
+            composable("cloud-history") {
+                com.jmread.ui.history.CloudHistoryScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )

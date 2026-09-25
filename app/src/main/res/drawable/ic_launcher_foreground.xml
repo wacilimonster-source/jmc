@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:inset="6%"
-    android:drawable="@drawable/pika_icon_foreground" />
+<!-- JM Reader 图标：深炭底 + 禁漫金 "JM" 字标（几何笔画） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- J：竖笔 + 底部左弯钩 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M47,38 L47,61 A9,9 0 0 1 29,61"
+        android:strokeColor="#F0B93B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="6.5" />
+    <!-- M：经典折线 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M59,70 L59,38 L69.5,57 L80,38 L80,70"
+        android:strokeColor="#F0B93B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="6.5" />
+</vector>

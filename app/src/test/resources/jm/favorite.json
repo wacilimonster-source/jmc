@@ -1,0 +1,33 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "list": [
+      {
+        "id": "1435723",
+        "author": "山下クロヲ",
+        "description": "",
+        "name": "[禁漫汉化组](C107)[くろほんやさん(山下クロヲ)]测试收藏项",
+        "latest_ep": null,
+        "latest_ep_aid": null,
+        "image": "",
+        "category": { "id": "1", "title": "同人" },
+        "category_sub": { "id": "1", "title": "同人" }
+      },
+      {
+        "id": "241559",
+        "author": "另一作者",
+        "description": "",
+        "name": "多章节更新中的收藏项",
+        "latest_ep": { "id": "998001", "name": "第 3 话" },
+        "latest_ep_aid": 998001,
+        "image": "",
+        "category": { "id": "2", "title": "单本" },
+        "category_sub": { "id": "0", "title": null }
+      }
+    ],
+    "folder_list": [],
+    "total": "26",
+    "count": 20
+  }
+}

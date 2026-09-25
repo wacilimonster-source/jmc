@@ -38,6 +38,10 @@ data class ComicSummary(
     val isFavourite: Boolean = false,
     /** 大分类名（category.title，列表卡片角标用） */
     val categoryName: String = "",
+    /** 云端收藏项专属：最近更新章节的展示文本（/favorite.latest_ep，其他端点恒空） */
+    val latestEpText: String = "",
+    /** 云端收藏项专属：最近更新章节的 photo id（/favorite.latest_ep_aid） */
+    val latestEpAid: String = "",
 ) {
     /** 作品标识：列表点击、路由参数、本地记账都用它（单源 == id） */
     val ref: String get() = id
@@ -181,8 +185,9 @@ enum class RankTab(
     val order: String?,
 ) {
     H24("H24", "新晋热榜", "热门里最近更新的", null),
-    D7("D7", "周榜", "本周最多观看", "mv_w"),
+    MV("MV", "总排行", "全部时间最多观看", "mv"),
     D30("D30", "月榜", "本月最多观看", "mv_m"),
+    D7("D7", "周榜", "本周最多观看", "mv_w"),
     ;
 
     companion object {
@@ -265,13 +270,6 @@ data class ComicComment(
     val isAd: Boolean = false,
     /** 等级徽章（expinfo.badges） */
     val badges: List<String> = emptyList(),
-)
-
-/** 每日签到结果 */
-data class DailyCheckIn(
-    val checkedIn: Boolean = false,
-    val consecutiveDays: Int = 0,
-    val message: String = "",
 )
 
 /** 每周必看期数 */

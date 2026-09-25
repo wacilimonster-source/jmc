@@ -149,6 +149,15 @@ private fun ComicCard(
                 )
                 null -> {}
             }
+            // 云端收藏的「有更新」角标：左上角（数据来自 /favorite.latest_ep，仅收藏列表填充）
+            if (comic.latestEpText.isNotBlank()) {
+                ReadBadge(
+                    text = "有更新",
+                    container = MaterialTheme.colorScheme.tertiary,
+                    content = MaterialTheme.colorScheme.onTertiary,
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+            }
         }
         Text(
             text = comic.title,

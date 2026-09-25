@@ -1,10 +1,13 @@
 package com.jmread.dto
 
+import com.jmread.network.JmActionResponse
 import com.jmread.network.JmAlbumResponse
+import com.jmread.network.JmDailyCalendarResponse
+import com.jmread.network.JmListResponse
+import com.jmread.network.JmPromoteResponse
 import com.jmread.network.JmCategoriesResponse
 import com.jmread.network.JmChapterResponse
 import com.jmread.network.JmForumResponse
-import com.jmread.network.JmListResponse
 import com.jmread.network.JmSettingResponse
 import com.jmread.network.JmWeekResponse
 import com.jmread.network.parseSettingLeniently
@@ -212,6 +215,57 @@ class JmDtoFixtureTest {
         assertEquals(257, resp.data.categories.size)
         assertEquals("258", resp.data.categories.first().id)
         assertEquals("2026第257期09.18 - 09.11", resp.data.categories.first().time)
+    }
+
+    // ---------- 2026-09-25 实测形态（登录侧 / 频道，见 reports/feature-design-20260925.html） ----------
+
+    @Test
+    fun `favorite - list 键 + 字符串 total + latest_ep 容错`() {
+        val resp = json.decodeFromString(JmListResponse.serializer(), fixture("favorite"))
+        val d = resp.data
+        assertEquals(26, d.total)                    // 字符串 "26" → JmFlexibleInt
+        assertEquals(2, d.items.size)                // 列表键是 list 不是 content
+        val first = d.items[0]
+        assertEquals("", first.latestEpText)         // latest_ep=null → 不炸包、取空
+        val second = d.items[1]
+        assertEquals("第 3 话", second.latestEpText)  // 对象形态 → 取不出文本但也不炸
+        assertEquals("998001", second.latestEpAidText)   // 裸数字形态 → 灵活字符串
+    }
+
+    @Test
+    fun `daily - 月历签到对象`() {
+        val resp = json.decodeFromString(JmDailyCalendarResponse.serializer(), fixture("daily"))
+        val d = resp.data!!
+        assertEquals("72", d.dailyId)                // 裸数字 → 灵活字符串
+        assertEquals("9月-兔兔月", d.eventName)
+        assertEquals("14.3%", d.currentProgress)
+        assertEquals(2, d.signedDays)                // record 两行，两处 signed=true
+        assertEquals(true, d.record[0][1].signed == false)
+        assertEquals("350", d.sevenDaysCoin)
+    }
+
+    @Test
+    fun `promote - 频道 block 列表`() {
+        val resp = json.decodeFromString(JmPromoteResponse.serializer(), fixture("promote"))
+        val blocks = resp.data.list
+        assertEquals(2, blocks.size)
+        assertEquals("连载更新→右滑看更多→", blocks[0].title)
+        assertEquals(1, blocks[0].content.size)
+        assertEquals("569509", blocks[0].content[0].id)
+    }
+
+    @Test
+    fun `action - 收藏翻转与签到的响应形态`() {
+        val fav = json.decodeFromString(
+            JmActionResponse.serializer(),
+            "{\"code\":200,\"errorMsg\":\"\",\"data\":{\"status\":\"ok\",\"msg\":\"漫画添加到您最喜爱的清单!\",\"type\":\"add\"}}",
+        )
+        assertEquals(true, fav.data?.isFavouriteAfter)
+        val chk = json.decodeFromString(
+            JmActionResponse.serializer(),
+            "{\"code\":200,\"errorMsg\":\"\",\"data\":{\"msg\":\"Jcoin:40 EXP:100\"}}",
+        )
+        assertEquals("Jcoin:40 EXP:100", chk.data?.msg)
     }
 
     @Test

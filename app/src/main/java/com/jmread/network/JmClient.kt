@@ -289,12 +289,12 @@ object JmClient {
     suspend fun weekFilter(weekId: String, page: Int): JmListResponse =
         fetchList("/week/filter?id=${URLEncoder.encode(weekId, "UTF-8")}&page=$page&t=a", ComicSort.DD)
 
-    /** 登录：POST /login（form: username + password）；返回会话密钥 s */
-    suspend fun login(email: String, password: String): String {
+    /** 登录：POST /login（form: username + password）；返回 data（s=会话, uid=用户 id） */
+    suspend fun login(email: String, password: String): JmLoginData {
         val text = execute("/login", mapOf("username" to email, "password" to password))
         val resp = json.decodeFromString(JmLoginResponse.serializer(), text)
         if (resp.data.s.isBlank()) throw JmException("禁漫登录失败：${resp.errorMsg ?: text.take(120)}")
-        return resp.data.s
+        return resp.data
     }
 
     /** 退出登录：GET /logout（尽力而为，失败不抛） */
@@ -302,34 +302,49 @@ object JmClient {
         runCatching { execute("/logout") }
     }
 
-    // ---------- 需登录端点（能力未验证，UI 层不渲染入口；方法保留供验证后启用） ----------
-
-    /** 收藏列表：GET /favorite?page=&folder_id=0&o=mr */
-    suspend fun favorites(page: Int): JmListResponse =
-        json.decodeFromString(execute("/favorite?page=$page&folder_id=0&o=mr"))
+    // ---------- 需登录端点（2026-09-25 实测定案，见 reports/feature-design-20260925.html） ----------
 
     /**
-     * 收藏 / 取消收藏切换。
-     * ⚠ 参数未验证（取消字段官方移动端未公开，type=1/0 是社区猜测），
-     * 能力位 hasCloudFavouriteWrite=false 期间 UI 不得调用。
+     * 收藏列表：GET /favorite?page=&folder_id=0&o=mr（o=mp 为按更新时间）。
+     * data 键是 list（JmListData.items 兼容），total 是字符串数字（JmFlexibleInt 兼容），
+     * 列表项自带 latest_ep / latest_ep_aid —— 「有更新」角标的数据源。
      */
-    suspend fun favoriteToggle(aid: String, add: Boolean): Boolean {
-        val type = if (add) "1" else "0"
-        val text = execute("/favorite?aid=${URLEncoder.encode(aid, "UTF-8")}&type=$type")
-        return json.decodeFromString(JmActionResponse.serializer(), text).code == 200
+    suspend fun favorites(page: Int, orderBy: String = "mr"): JmListResponse =
+        json.decodeFromString(execute("/favorite?page=$page&folder_id=0&o=$orderBy"))
+
+    /**
+     * 收藏 / 取消收藏：POST /favorite {aid} —— 同一端点的翻转开关（实测两次调用
+     * 依次返回 type=add / type=remove）。调用方以响应 [JmActionData.isFavouriteAfter] 为准，
+     * 不要本地乐观翻转（双击防抖也在这里面做）。
+     */
+    suspend fun favoriteToggle(aid: String): JmActionData? {
+        val text = execute("/favorite", form = mapOf("aid" to aid))
+        return json.decodeFromString(JmActionResponse.serializer(), text).data
     }
 
-    /** 签到状态：GET /daily（免登录 data=null → 是「未登录」不是「未签到」） */
-    suspend fun dailyStatus(): JmDailyResponse =
-        json.decodeFromString(execute("/daily"))
+    /**
+     * 月历签到数据：GET /daily?user_id={uid}。
+     * ⚠ 不带 user_id 返回 data=[]（空数组）——实测 2026-09-25，uid 从登录 data.uid 取。
+     */
+    suspend fun dailyCalendar(userId: String): JmDailyCalendarResponse =
+        json.decodeFromString(execute("/daily?user_id=${URLEncoder.encode(userId, "UTF-8")}"))
 
-    /** 执行签到：GET /daily_chk */
-    suspend fun dailyCheckIn(): JmDailyResponse =
-        json.decodeFromString(execute("/daily_chk"))
+    /** 执行签到：POST /daily_chk {user_id, daily_id}；成功 data={"msg":"Jcoin:40 EXP:100"} */
+    suspend fun dailyCheckIn(userId: String, dailyId: String): JmActionData? {
+        val text = execute(
+            "/daily_chk",
+            form = mapOf("user_id" to userId, "daily_id" to dailyId),
+        )
+        return json.decodeFromString(JmActionResponse.serializer(), text).data
+    }
 
-    /** 云端浏览历史：GET /watch_list?page= */
+    /** 云端浏览历史：GET /watch_list?page=（data 键是 list） */
     suspend fun watchList(page: Int): JmListResponse =
         json.decodeFromString(execute("/watch_list?page=$page"))
+
+    /** 推荐本本频道 block（内容会轮换，调用方必须容空） */
+    suspend fun promote(page: Int = 1): JmPromoteResponse =
+        json.decodeFromString(execute("/promote?page=$page"))
 
     // ---------- 内部 ----------
 

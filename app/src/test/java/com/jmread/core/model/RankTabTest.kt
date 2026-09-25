@@ -39,7 +39,7 @@ class RankTabTest {
         // H24 不是服务端档位，没有对应的 o= 取值（由月榜数据本地重排）
         assertEquals(null, RankTab.H24.order)
         // 有服务端参数的档位必须恰好是周/月两个
-        assertEquals(listOf(RankTab.D7, RankTab.D30), RankTab.entries.filter { it.order != null })
+        assertEquals(listOf(RankTab.MV, RankTab.D30, RankTab.D7), RankTab.entries.filter { it.order != null })
     }
 
     @Test

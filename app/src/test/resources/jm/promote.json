@@ -1,0 +1,33 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "list": [
+      {
+        "id": "26",
+        "title": "连载更新→右滑看更多→",
+        "slug": "",
+        "type": "promote",
+        "filter_val": "26",
+        "content": [
+          {
+            "id": "569509",
+            "author": "阿兔 莱南",
+            "name": "异世界重生之后宫养成记 [禁漫天堂]",
+            "image": "",
+            "category": { "id": "5", "title": "韩漫" },
+            "category_sub": { "id": "1", "title": "汉化" }
+          }
+        ]
+      },
+      {
+        "id": "27",
+        "title": "禁漫汉化组最新",
+        "slug": "禁漫汉化组",
+        "type": "promote",
+        "filter_val": "27",
+        "content": []
+      }
+    ]
+  }
+}

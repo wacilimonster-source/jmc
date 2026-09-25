@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 默认禁用明文 HTTP：应用内所有请求均使用 HTTPS（哔咔 API / 禁漫 API / 图片 CDN） -->
+    <!-- 默认禁用明文 HTTP：应用内所有请求均使用 HTTPS（禁漫 API / 图片 CDN） -->
     <base-config cleartextTrafficPermitted="false" />
 
     <!-- 禁漫图片 CDN：镜像域名由服务端 /setting 动态下发，个别镜像可能回落 HTTP，
-         仅对这些已知 CDN 主机放行明文，避免整包放开。 -->
+         仅对这些已知 CDN 主机放行明文，避免整包放开。
+         覆盖 /setting.img_host 实测下发过的全部域名族（含 jmdanjonproxy.xyz、
+         jmapiproxy3.cc——新族不进表会被系统拦，表现为「只有别人能看图」）。 -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">jmapiproxy1.cc</domain>
         <domain includeSubdomains="true">jmapiproxy2.cc</domain>
+        <domain includeSubdomains="true">jmapiproxy3.cc</domain>
         <domain includeSubdomains="true">jmapinodeudzn.net</domain>
+        <domain includeSubdomains="true">jmdanjonproxy.xyz</domain>
     </domain-config>
 </network-security-config>

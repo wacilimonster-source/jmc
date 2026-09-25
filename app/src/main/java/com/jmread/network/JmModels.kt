@@ -10,6 +10,8 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
@@ -54,6 +56,30 @@ object JmFlexibleStringSerializer : KSerializer<String> {
 
     override fun serialize(encoder: Encoder, value: String) {
         encoder.encodeString(value)
+    }
+}
+
+/**
+ * 「数字或字符串数字」字段的 Int 序列化器。
+ *
+ * 实测（2026-09-25）：/favorite 的 total 是字符串 "26"，而搜索/榜单的 total 是裸数字。
+ * 声明 Int 时字符串形态会让整包解析失败——收藏列表「永远为空」就是这类坑。
+ * 空串 / 非数字回退 0。
+ */
+object JmFlexibleIntSerializer : KSerializer<Int> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("com.jmread.JmFlexibleInt", PrimitiveKind.INT)
+
+    override fun deserialize(decoder: Decoder): Int {
+        val input = decoder as? JsonDecoder ?: return decoder.decodeInt()
+        return when (val el = input.decodeJsonElement()) {
+            is JsonPrimitive -> el.content.trim().toIntOrNull() ?: 0
+            else -> 0
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Int) {
+        encoder.encodeInt(value)
     }
 }
 
@@ -168,14 +194,18 @@ data class JmListResponse(
 data class JmListData(
     val content: List<JmAlbumSummary> = emptyList(),
     /**
-     * 部分端点的列表键叫 list 而不是 content（实测 /week/filter）。
+     * 部分端点的列表键叫 list 而不是 content（实测 /week/filter、/favorite、/watch_list）。
      *
      * ⚠ 两个键都带 `= emptyList()` 默认值，所以键名写错时 kotlinx **不会抛异常**，
      *   只会静默给出空列表——这是本项目最隐蔽的一类故障（每周必看某期曾因此永远显示空）。
      *   读取方一律用 [items]，不要直接取 content。
      */
     val list: List<JmAlbumSummary> = emptyList(),
-    /** 浏览流恒为 10000（=125页×80，页数可信值）；搜索/榜单/收藏是真实命中数 */
+    /**
+     * 浏览流恒为 10000（=125页×80，页数可信值）；搜索/榜单是裸数字；
+     * /favorite 是字符串 "26"（2026-09-25 实测）→ 用灵活 Int 序列化器统一。
+     */
+    @Serializable(with = JmFlexibleIntSerializer::class)
     val total: Int = 0,
 ) {
     /** 统一取值口：content 与 list 哪个非空用哪个 */
@@ -198,7 +228,32 @@ data class JmAlbumSummary(
     val adddate: String = "",
     /** 搜索结果额外返回的简介（可为 null） */
     val description: String? = null,
-)
+    /**
+     * 收藏列表项（/favorite）专属：最近一次更新的章节信息。
+     * 线上形态未完全钉死（null / 对象 / 字符串都有可能）→ 用 JsonElement 接，
+     * 读取方走 [latestEpText] / [latestEpAidText]，绝不让形态漂移炸整包。
+     */
+    @SerialName("latest_ep") val latestEp: JsonElement? = null,
+    @SerialName("latest_ep_aid") val latestEpAid: JsonElement? = null,
+) {
+    /** 更新章节的展示文本：字符串原样 / 对象取 name 字段（null / 无内容 → 空串） */
+    val latestEpText: String
+        get() = when (val el = latestEp) {
+            is JsonPrimitive -> if (el is JsonNull) "" else el.content
+            is kotlinx.serialization.json.JsonObject ->
+                (el["name"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content.orEmpty()
+            else -> ""
+        }
+
+    /** 更新章节的 photo id：字符串/数字原样 / 对象取 id 字段（null / 无内容 → 空串） */
+    val latestEpAidText: String
+        get() = when (val el = latestEpAid) {
+            is JsonPrimitive -> if (el is JsonNull) "" else el.content
+            is kotlinx.serialization.json.JsonObject ->
+                (el["id"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content.orEmpty()
+            else -> ""
+        }
+}
 
 /**
  * 分类名对象（列表项的 category / category_sub）。
@@ -388,7 +443,7 @@ data class JmLoginData(
     val uid: String = "",
 )
 
-// ---------- 动作 / 签到（需登录） ----------
+// ---------- 动作 / 签到（需登录，2026-09-25 实测形态） ----------
 
 @Serializable
 data class JmActionResponse(
@@ -397,24 +452,96 @@ data class JmActionResponse(
     val data: JmActionData? = null,
 ) : JmEnvelope
 
+/**
+ * 动作响应。实测两种来源：
+ *  - POST /favorite {aid}（翻转开关）→ {"status":"ok","msg":"漫画添加到您最喜爱的清单!","type":"add"}
+ *    第二次调用同端点返回 {"type":"remove","msg":"已移除收藏"} —— **type 是机器可读的翻转结果**
+ *  - POST /daily_chk {user_id, daily_id} → {"msg":"Jcoin:40 EXP:100"}
+ */
 @Serializable
 data class JmActionData(
-    /** /favorite 返回的机器码动作描述（如 "加入收藏成功" / "取消收藏成功"） */
-    val action: String? = null,
-)
+    val status: String? = null,
+    val msg: String? = null,
+    /** 收藏开关结果："add" / "remove" */
+    val type: String? = null,
+    val aid: String? = null,
+    val cid: String? = null,
+    val spoiler: String? = null,
+) {
+    /** 收藏翻转语义结果：true=本次调用后为已收藏；null=响应未携带 type */
+    val isFavouriteAfter: Boolean?
+        get() = when (type) {
+            "add" -> true
+            "remove" -> false
+            else -> null
+        }
+}
 
+/**
+ * GET /daily?user_id={uid} 的月历签到对象（实测 2026-09-25，活动「9月-兔兔月」）。
+ * 不带 user_id 时该端点返回 data=[]（空数组）——「未登录/缺参」与「未签到」据此区分。
+ */
 @Serializable
-data class JmDailyResponse(
+data class JmDailyCalendarResponse(
     override val code: Int = 0,
     override val errorMsg: String? = null,
-    /** 免登录时 data=null：是「未登录」不是「未签到」 */
-    val data: JmDailyData? = null,
+    val data: JmDailyCalendar? = null,
 ) : JmEnvelope
 
 @Serializable
-data class JmDailyData(
-    @SerialName("is_check_in") val isCheckIn: Boolean = false,
-    @SerialName("check_in_days") val checkInDays: Int = 0,
-    val days: Int = 0,
-    val message: String = "",
+data class JmDailyCalendar(
+    /** 当月活动 id（POST /daily_chk 的必传参数） */
+    @Serializable(with = JmFlexibleStringSerializer::class)
+    @SerialName("daily_id") val dailyId: String = "",
+    @SerialName("event_name") val eventName: String = "",
+    /** 当前进度，如 "0%" / "14.3%" */
+    @SerialName("currentProgress") val currentProgress: String = "",
+    /** 月历矩阵：外层是周行，内层是 {date, signed} 天 */
+    val record: List<List<JmDailyDay>> = emptyList(),
+    @SerialName("three_days_coin") val threeDaysCoin: String = "",
+    @SerialName("three_days_exp") val threeDaysExp: String = "",
+    @SerialName("seven_days_coin") val sevenDaysCoin: String = "",
+    @SerialName("seven_days_exp") val sevenDaysExp: String = "",
+    @SerialName("background_phone") val backgroundPhone: String = "",
+) {
+    /** 当月已签天数（record 里的 signed 计数） */
+    val signedDays: Int get() = record.sumOf { row -> row.count { it.signed } }
+}
+
+@Serializable
+data class JmDailyDay(
+    /** 日期（"01".."31"），线上偶发裸数字 → 灵活字符串 */
+    @Serializable(with = JmFlexibleStringSerializer::class)
+    val date: String = "",
+    val signed: Boolean = false,
+    /** 线上还有奖励/补签等附加键，忽略 */
+)
+
+// ---------- /promote 推荐本本（官方 App 首页频道，2026-09-25 实测） ----------
+
+@Serializable
+data class JmPromoteResponse(
+    override val code: Int = 0,
+    override val errorMsg: String? = null,
+    val data: JmPromoteData = JmPromoteData(),
+) : JmEnvelope
+
+/**
+ * /promote?page= 的频道 block 列表。
+ * ⚠ 实测内容会轮换：首测 8 个 block，复测两次返回空列表 —— 调用方必须容空（best-effort）。
+ */
+@Serializable
+data class JmPromoteData(
+    val list: List<JmPromoteBlock> = emptyList(),
+)
+
+@Serializable
+data class JmPromoteBlock(
+    val id: String = "",
+    val title: String = "",
+    val slug: String = "",
+    val type: String = "",
+    /** 频道过滤值（如 "26"），语义未定，仅透传 */
+    @SerialName("filter_val") val filterVal: String = "",
+    val content: List<JmAlbumSummary> = emptyList(),
 )

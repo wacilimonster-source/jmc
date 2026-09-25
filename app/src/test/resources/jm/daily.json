@@ -1,0 +1,24 @@
+{
+  "code": 200,
+  "errorMsg": "",
+  "data": {
+    "daily_id": 72,
+    "three_days_coin": "150",
+    "three_days_exp": "150",
+    "seven_days_coin": "350",
+    "seven_days_exp": "350",
+    "event_name": "9月-兔兔月",
+    "background_pc": "/media/logo/pc/9PC.jpg",
+    "background_phone": "/media/logo/phone/9PH.jpg",
+    "currentProgress": "14.3%",
+    "record": [
+      [
+        { "date": "01", "signed": true, "today": false, "reward": "20", "coin": 20, "exp": 50 },
+        { "date": 2, "signed": false }
+      ],
+      [
+        { "date": "08", "signed": true }
+      ]
+    ]
+  }
+}

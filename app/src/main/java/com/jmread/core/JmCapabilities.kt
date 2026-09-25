@@ -40,6 +40,10 @@ object JmCapabilities {
     const val hasWeeklyPicks = true
     const val hasTagWall = true
     const val hasRelated = true
+    /** 推荐本本（/promote，内容轮换、best-effort 容空）—— 2026-09-25 实测 */
+    const val hasPromote = true
+    /** 运营频道（禁漫汉化组/禁漫去码/全彩化，基于 /search 关键词） */
+    const val hasChannels = true
     /** /random 不存在；o=md 是稳定序不是随机序 */
     const val hasRandom = false
     /** 无热词端点 */
@@ -47,7 +51,8 @@ object JmCapabilities {
 
     // ---------- 社区 ----------
     const val hasCommentRead = true
-    /** 发评论/回复参数与风控未验证 */
+    /** 发评论端点存在（POST /comment {aid, content}，实测返回业务校验而非 Not legal），
+     *  但成功路径需真机真实发帖验证一次后才放开 */
     const val hasCommentWrite = false
     /** 子评论内嵌在 replys，无需新端点 */
     const val hasSubComment = true
@@ -59,12 +64,13 @@ object JmCapabilities {
     const val hasForgotPassword = false
     const val hasProfile = false
     const val hasProfileEdit = false
-    /** 云端收藏列表端点存在但响应未验证；写侧参数未验证 */
-    const val hasCloudFavouriteRead = false
-    const val hasCloudFavouriteWrite = false
-    /** 签到/云端历史：需账号验证后放开 */
-    const val hasDailyCheckIn = false
-    const val hasCloudHistory = false
+    /** 2026-09-25 实测打通：/favorite 列表（list 键）+ POST /favorite 翻转（type=add|remove） */
+    const val hasCloudFavouriteRead = true
+    const val hasCloudFavouriteWrite = true
+    /** 月历签到（/daily?user_id + POST /daily_chk {user_id, daily_id}）实测到账 Jcoin/EXP */
+    const val hasDailyCheckIn = true
+    /** 云端历史 /watch_list 实测可用 */
+    const val hasCloudHistory = true
 
     // ---------- 详情 ----------
     /** 列表/详情自带 is_favorite/liked，可读回填收藏态初值（无需写权限） */
