@@ -12,18 +12,22 @@
 | release 构建配置 | ✅ 已有（`app/build.gradle.kts`：minify + shrinkResources + 签名可环境变量覆盖） |
 | `gbuild.sh` 构建脚本 | ✅ 已有（`release` 语法糖：单测 + assembleRelease + 按版本重命名 APK） |
 | 更新检查代码 | ✅ 已有（`UpdateManager` app 级下载状态机 + jsDelivr CDN 候选源 + `UpdateState` 免打扰） |
-| `update.json` | ✅ 已跑通真实升级链路（0.1.0 → 0.1.6 七版） |
+| `update.json` | ✅ 已跑通真实升级链路（0.1.0 → 0.1.7 八版） |
 | 更新仓库 | ✅ `git@github.com:wacilimonster-source/jmc.git`（origin） |
 | 崩溃取证 | ✅ 0.1.6 起（CrashReporter 三通道 + 日志页横幅） |
+| 每日自动签到 | ✅ 0.1.7 起（登录后后台自动；状态并入用户信息行；0.1.5 前老登录缺 uid 自愈补齐） |
 | 真机验收 | 🟡 0.1.5 起按「单测门禁通过即发版」，真机 checklist 持续欠账（见下） |
 
-当前版本：`versionCode 7` / `versionName 0.1.6`。
+当前版本：`versionCode 8` / `versionName 0.1.7`。
 
-> **金丝雀盯梢的三个环境漂移**（2026-10-25 `jm-api-check` 实测，均为 INFO 级）：
+> **金丝雀盯梢的环境漂移**（2026-10-25 `jm-api-check` 实测）：
 > 1. `jm3_version` 升为 2.1.12 —— 兜底值已同步更新（JmCrypto / jm-lib）。
 > 2. **日榜 mv_t 已复活**（total=100）——「新晋热榜」暂维持月榜本地重排方案，后续评估是否切回直连。
 > 3. **c= 分类过滤已恢复**（doujin 流与未过滤流首项已不同）——0.1.5 记录的上游回归结束，
 >    分类页走协议正确发法，过滤自动生效；断言保留，若再次漂移会亮出。
+> 4. **/daily 月历 `signed` 是三态**（2026-10-25 带账号实测）：往日未签 false / 已签 true /
+>    **当天未签与未来日子 null**——生产 `coerceInputValues` 把 null 收成 false，不炸解析；
+>    签到恒报错的真因是 0.1.5 前老登录缺 uid 落盘（0.1.7 已自愈补齐）。
 >
 > 仓库根 APK 按保留策略只留最近 2~3 个（0.1.4 起），更早的已删（git 历史可找回）。
 

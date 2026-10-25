@@ -420,30 +420,44 @@ object JmRepository {
     }
 
     /**
-     * 月历签到数据（/daily?user_id=）。未登录或无 uid 返回 null（UI 整卡隐藏）。
+     * 月历签到数据（/daily?user_id=）。未登录或无 uid 返回 null（UI 不展示签到态）。
      */
     suspend fun dailyCalendar(): com.jmread.network.JmDailyCalendar? {
         if (!isLoggedIn) return null
-        val uid = SourcePrefs.current().jmUid ?: return null
+        val uid = uidOrRelogin() ?: return null
         return runCatching { JmClient.dailyCalendar(uid).data }.getOrNull()
             .takeIf { it != null && it.dailyId.isNotBlank() }
     }
 
     /**
-     * 执行今日签到。返回到账文本（如 "Jcoin:40 EXP:100"）。
+     * 云端能力统一取 uid。⚠ uid 落盘是 0.1.5 才加的——老版本登录后原地升级的用户 jmUid 为空，
+     * 之前表现是签到恒报「签到数据不可用」。这里有保存的凭据就静默重登一次补齐，失败返回 null。
+     */
+    private suspend fun uidOrRelogin(): String? {
+        SourcePrefs.current().jmUid?.let { return it }
+        val cred = SecureAccountStore.load() ?: return null
+        return runCatching {
+            val data = JmClient.login(cred.first, cred.second)
+            SourcePrefs.current().setJmLogin(data.s, cred.first, data.uid)
+            data.uid
+        }.getOrNull()
+    }
+
+    /**
+     * 执行今日签到。返回到账文本（如 "Jcoin:40 EXP:40"）。
      * 今日已签（日历当天 signed=true）时直接返回提示，不发请求。
      */
     suspend fun checkIn(): String {
+        val uid = uidOrRelogin() ?: throw JmException("登录态缺失，请重新登录")
         val cal = dailyCalendar() ?: throw JmException("签到数据不可用")
         val today = java.text.SimpleDateFormat("dd", java.util.Locale.US)
-            .format(java.util.Date()).removePrefix("0")
-        val already = cal.record.any { row -> row.any { it.date == today && it.signed } }
+            .format(java.util.Date())
+        // record 的 date 线上以零填充为主但偶发裸数字（date 走灵活字符串），比较时两侧都补齐到两位
+        val already = cal.record.any { row -> row.any { it.date.padStart(2, '0') == today } }
         if (already) return "今日已签到"
-        val result = JmClient.dailyCheckIn(uid(), cal.dailyId)
+        val result = JmClient.dailyCheckIn(uid, cal.dailyId)
         return result?.msg ?: "签到完成"
     }
-
-    private fun uid(): String = SourcePrefs.current().jmUid ?: ""
 
     /** 云端浏览历史（/watch_list，data 键 list） */
     suspend fun cloudHistory(page: Int): PageResult<ComicSummary> {

@@ -2,6 +2,7 @@ package com.jmread.dto
 
 import com.jmread.network.JmActionResponse
 import com.jmread.network.JmAlbumResponse
+import com.jmread.network.JmClient
 import com.jmread.network.JmDailyCalendarResponse
 import com.jmread.network.JmListResponse
 import com.jmread.network.JmPromoteResponse
@@ -242,6 +243,30 @@ class JmDtoFixtureTest {
         assertEquals(2, d.signedDays)                // record 两行，两处 signed=true
         assertEquals(true, d.record[0][1].signed == false)
         assertEquals("350", d.sevenDaysCoin)
+    }
+
+    /**
+     * 2026-10-25 线上实测（10月-「来都来了」）：往日未签 signed=false、已签 true，
+     * **当天未签与未来日子发 null**。必须用生产 Json 配置（JmClient.json）验证——
+     * 本地测试 json 的 coerceInputValues 若在生产缺席，null 会炸掉整个 /daily 解析，
+     * 签到整卡瘫痪（表现为「签到数据不可用」）。
+     */
+    @Test
+    fun `daily - signed null 在生产配置下按未签解析`() {
+        val text = """
+            {"code":200,"data":{"daily_id":73,"event_name":"[sample:event_name]",
+             "currentProgress":"14.3%","makeup_used":0,"makeup_limit":5,"makeup_available":true,
+             "record":[[{"date":"24","signed":false,"bonus":true},
+                        {"date":"25","signed":null,"bonus":true},
+                        {"date":"26","signed":null,"bonus":false}]]}}
+        """.trimIndent()
+        val resp = JmClient.json.decodeFromString(JmDailyCalendarResponse.serializer(), text)
+        val d = resp.data!!
+        assertEquals(false, d.record[0][0].signed)
+        assertEquals(false, d.record[0][1].signed)   // null → 未签（可签到）
+        assertEquals(false, d.record[0][2].signed)
+        assertEquals(0, d.signedDays)
+        assertEquals("73", d.dailyId)                // makeup_* 未知键被忽略、daily_id 裸数字可解
     }
 
     @Test

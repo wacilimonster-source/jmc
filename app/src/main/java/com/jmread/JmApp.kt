@@ -43,6 +43,7 @@ class JmApp : Application() {
         GridSettings.init(this)
         SearchHistory.init(this)
         com.jmread.core.update.UpdateState.init(this)
+        com.jmread.core.checkin.DailyCheckIn.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
         appScope.launch { ReaderStatus.loadAll(this@JmApp) }
         CategorySettings.init(this)
@@ -56,6 +57,8 @@ class JmApp : Application() {
         // 401 静默重登钩子装配 + 启动刷新一次 /setting（域名/版本/img_host 自愈）
         JmRepository.init()
         appScope.launch { JmRepository.launchSettingRefresh() }
+        // 登录态下每日自动签到（幂等：当日成功即跳过；失败进「我的」页可见可重试）
+        com.jmread.core.checkin.DailyCheckIn.maybeCheckIn()
         // 安装 BouncyCastle TLS（绕过 Cloudflare 对 BoringSSL 的指纹拦截）
         BcTls.install()
         // Coil：图片走 BC TLS + 章节图乱序还原 Fetcher（唯一图片管线装配点）
