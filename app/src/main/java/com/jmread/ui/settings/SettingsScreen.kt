@@ -214,9 +214,11 @@ fun SettingsScreen(
             SettingsGroup(header = "通用") {
                 UpdateSection()
                 SettingsRowDivider()
+                CacheCleanSection()
+                SettingsRowDivider()
                 ListItem(
                     headlineContent = { Text("调试日志") },
-                    supportingContent = { Text("查看应用运行日志") },
+                    supportingContent = { Text("查看应用运行日志与上次会话异常取证") },
                     trailingContent = { ChevronIcon() },
                     modifier = Modifier.clickable(onClick = onOpenLog),
                 )
@@ -395,6 +397,44 @@ private fun UpdateSection() {
             },
         )
     }
+}
+
+/** 通用组 · 清除缓存行：图片磁盘缓存体积 + 乱序判定/切片记录条数，一键清空（均为可重建缓存） */
+@Composable
+private fun CacheCleanSection() {
+    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var statsText by remember { mutableStateOf("统计中…") }
+    var clearing by remember { mutableStateOf(false) }
+
+    suspend fun refresh() {
+        statsText = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.jmread.core.CacheCleaner.snapshot(context).text()
+        }
+    }
+
+    LaunchedEffect(Unit) { refresh() }
+
+    ListItem(
+        headlineContent = { Text("清除缓存") },
+        supportingContent = { Text(statsText) },
+        trailingContent = {
+            TextButton(
+                onClick = {
+                    if (clearing) return@TextButton
+                    clearing = true
+                    scope.launch {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.jmread.core.CacheCleaner.clear(context)
+                        }
+                        refresh()
+                        clearing = false
+                    }
+                },
+                enabled = !clearing,
+            ) { Text(if (clearing) "清除中…" else "清除") }
+        },
+    )
 }
 
 /** 关于对话框：版本、简介与内容来源声明 */

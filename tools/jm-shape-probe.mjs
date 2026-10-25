@@ -94,6 +94,25 @@ if (albumId) await probe('forum', api.forum(albumId, 1));
 const week = await probe('week', api.week());
 const weekId = week?.envelope?.data?.categories?.[0]?.id;
 if (weekId) await probe('weekFilter', api.weekFilter(weekId, 1));
+await probe('promote', api.promote(1));
+
+// 登录侧端点形态（/favorite /watch_list /daily）：仅当凭据经环境变量注入时探测，
+// 只读不写（不发收藏翻转、不发签到）。0.1.5 的「列表键 list vs content」事故正属此类，
+// 没有基线时契约对账只能跳过——想盯住写侧形态漂移，就得带凭据跑一次 --update。
+const ENV_USER = process.env.JM_USER;
+const ENV_PASS = process.env.JM_PASS;
+if (ENV_USER && ENV_PASS) {
+  const login = await probe('login', api.login(ENV_USER, ENV_PASS));
+  if (login?.envelope?.data?.s) {
+    api.session = login.envelope.data.s;
+    const uid = String(login.envelope?.data?.uid ?? '');
+    await probe('favorite', api.favorites(1));
+    await probe('watch_list', api.watchList(1));
+    await probe('daily', api.daily(uid));
+  }
+} else {
+  console.log('  (未设 JM_USER/JM_PASS，跳过登录侧端点形态探测)'.padEnd(20));
+}
 
 console.log('─'.repeat(78));
 

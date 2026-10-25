@@ -65,6 +65,20 @@ object ScrambleCache {
     fun scrambledRatio(): Double =
         if (totalChecked == 0L) 0.0 else totalScrambled.toDouble() / totalChecked
 
+    /** 当前判定表条数（清除缓存入口的体积展示用） */
+    fun size(): Int = synchronized(this) { verdicts.size }
+
+    /** 一键清空（设置页「清除缓存」）：判定表与占比统计归零，SP 同步清除。缓存可重建，无用户数据 */
+    @Synchronized
+    fun reset() {
+        verdicts.clear()
+        pendingPuts.clear()
+        totalChecked = 0L
+        totalScrambled = 0L
+        dirty = false
+        runCatching { sp.edit().clear().apply() }
+    }
+
     fun statsText(): String {
         val r = scrambledRatio()
         return "已判定 $totalChecked 页，其中乱序 $totalScrambled 页（${"%.1f".format(r * 100)}%）"

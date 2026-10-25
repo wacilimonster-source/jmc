@@ -22,6 +22,7 @@
 import {
   BROWSE_PAGE_LIMIT,
   BROWSE_TOTAL_SENTINEL,
+  FALLBACK_VERSION,
   JmApi,
   PAGE_SIZE,
   firstId,
@@ -112,8 +113,8 @@ check('/setting 下发 jm3_version', typeof sd.jm3_version === 'string' && sd.jm
 check('/setting 下发 img_host', typeof sd.img_host === 'string' && sd.img_host.length > 0, sd.img_host);
 check(
   'jm3_version 与代码兜底值一致',
-  sd.jm3_version === '2.1.8',
-  sd.jm3_version === '2.1.8' ? '' : `线上=${sd.jm3_version}，JmCrypto.FALLBACK_VERSION=2.1.8`,
+  sd.jm3_version === FALLBACK_VERSION,
+  sd.jm3_version === FALLBACK_VERSION ? '' : `线上=${sd.jm3_version}，JmCrypto.FALLBACK_VERSION=${FALLBACK_VERSION}`,
 );
 
 // /setting 下发的域名要能被采纳（否则域名自愈形同虚设）
@@ -214,6 +215,13 @@ const chapter = samplePhotoId
 const forum = sampleAlbumId
   ? await probe(`/forum 评论 aid=${sampleAlbumId}`, '/forum?mode=all&page=1&aid=…', () => api.forum(sampleAlbumId, 1), 'list')
   : null;
+// 采样作品可能恰好是零评论作品（2026-10-25 实拍：浏览流首项 1485618 评论为空），
+// 空列表会把「字段形态」误报成 FAIL（CID/expinfo 取不到）并连累 hasCommentRead 误报不一致。
+// 评论形态断言与能力推导改用固定富评论样本兜底（1474353 实测 10 条评论）。
+let forumSource = forum;
+if ((forum?.envelope?.data?.list?.length ?? 0) === 0) {
+  forumSource = await probe('/forum 评论兜底样本 aid=1474353', '/forum?mode=all&page=1&aid=…', () => api.forum(1474353, 1), 'list');
+}
 
 const week = await probe('/week 期数列表', '/week', () => api.week(), 'categories');
 
@@ -222,6 +230,34 @@ const weekId = week?.envelope?.data?.categories?.[0]?.id;
 const weekContent = weekId
   ? await probe(`/week/filter 期内容 id=${weekId}`, '/week/filter?id=…', () => api.weekFilter(weekId, 1))
   : null;
+
+const promote = await probe('/promote 推荐本本', '/promote?page=1', () => api.promote(1));
+
+// ── 登录侧只读探测（可选）：凭据只经 JM_USER/JM_PASS 环境变量注入，用完即随进程销毁。
+//    只读不写：不发收藏翻转、不发签到——金丝雀不能动用户数据。
+let auth = { favorite: null, watch: null, daily: null };
+const envUser = process.env.JM_USER;
+const envPass = process.env.JM_PASS;
+if (envUser && envPass) {
+  try {
+    const login = await api.login(envUser, envPass);
+    api.session = login.session;
+    const uid = String(login.envelope?.data?.uid ?? '');
+    if (!AS_JSON) console.log(`\n  [登录侧只读探测 uid=${uid || '?'}]`);
+    const fav = await probe('/favorite 收藏列表', '/favorite?page=1&folder_id=0&o=mr', () => api.favorites(1), 'list');
+    const watch = await probe('/watch_list 云端历史', '/watch_list?page=1', () => api.watchList(1), 'list');
+    const daily = await probe('/daily 签到月历', '/daily?user_id=…', () => api.daily(uid), 'list');
+    auth = {
+      favorite: !!fav && fav.envelope?.code === 200,
+      watch: !!watch && watch.envelope?.code === 200,
+      daily: !!daily && daily.envelope?.code === 200,
+    };
+  } catch (e) {
+    if (!AS_JSON) console.log(`  登录侧探测失败：${e.message.slice(0, 60)}`);
+  }
+} else if (!AS_JSON) {
+  console.log('\n  (未设 JM_USER/JM_PASS，跳过登录侧只读探测)');
+}
 
 // ─────────────────────────────────────────────────────────────
 // 3. 关键不变量
@@ -257,6 +293,26 @@ check('月榜热度池含足够「近 7 天有更新」作品（新晋热榜的�
   }
 }
 
+// c= 分类过滤盯梢（feature-design §3.2）：2026-09-25 实测 /categories/filter 的 c= 被
+// 服务端静默忽略（八种取值全部返回同一未过滤流，total 恒 10000），属上游回归——
+// /search 上 c= 仍有效。分类页维持协议正确发法，服务端恢复即自动生效；本盯梢在
+// 行为翻转时亮出来提醒人工复核（与日榜 mv_t 同样的双向信息项）。
+{
+  let filteredFirst = '';
+  try {
+    const r = await api.browse(1, { category: 'doujin' });
+    filteredFirst = firstId(r.envelope);
+  } catch { /* 请求失败不算恢复，也不算漂移 */ }
+  const plainFirst = firstId(browse1?.envelope ?? {});
+  if (filteredFirst && plainFirst) {
+    if (filteredFirst === plainFirst) {
+      note('c= 分类过滤仍被忽略', 'doujin 流与未过滤流首项相同（已知上游回归）；分类页靠 /search 侧内容位兜底');
+    } else {
+      note('c= 分类过滤已恢复！', `doujin 首=${filteredFirst} ≠ 未过滤首=${plainFirst} —— 分类页过滤将自动生效，可评估移除兜底`);
+    }
+  }
+}
+
 check('搜索 total 是真实条数（≠10000）', search?.envelope?.data?.total !== BROWSE_TOTAL_SENTINEL,
   `综合维度 total=${search?.envelope?.data?.total}`);
 
@@ -274,9 +330,13 @@ check('列表 author 字段存在', c0?.author !== undefined, `实际 ${JSON.str
 
 const ad = album?.envelope?.data;
 check('详情 author 是数组', Array.isArray(ad?.author), `实际 ${typeof ad?.author}`);
-check('详情 series 带 sort 字段', ad?.series?.[0]?.sort !== undefined, `sort=${ad?.series?.[0]?.sort}`);
+// 单章作品 series 为空数组属正常（2026-10-25 实拍 doujin 流前 12 个均无 series）；
+// 只有确有 series 时才断言元素形态，否则单章采样会把形态断言误报成 FAIL
+check('详情 series 带 sort 字段', (ad?.series?.length ?? 0) === 0 || ad?.series?.[0]?.sort !== undefined,
+  (ad?.series?.length ?? 0) === 0 ? '采样作品无 series（单章，属正常），跳过元素断言' : `sort=${ad?.series?.[0]?.sort}`);
 check('详情统计字段是字符串', typeof ad?.total_views === 'string', `total_views=${typeof ad?.total_views}`);
-check('详情 is_favorite 可读（收藏态回填依据）', typeof ad?.is_favorite === 'boolean' || ad?.is_favorite !== undefined,
+check('详情 is_favorite 字段存在（⚠ 2026-09-25 实测恒 false 不可信，收藏态以 /favorite 列表匹配为准）',
+  ad?.is_favorite !== undefined,
   `${typeof ad?.is_favorite} = ${ad?.is_favorite}`);
 
 const cd = chapter?.envelope?.data;
@@ -285,7 +345,7 @@ check('章节 images 非空', images.length > 0, `${images.length} 张`);
 check('章节图片文件名连续递增（00001 起、扩展名一致）', filenamesContinuous(images),
   images.length ? `首=${images[0]} 尾=${images[images.length - 1]}` : '无样本');
 
-const fd = forum?.envelope?.data;
+const fd = forumSource?.envelope?.data;
 check('评论主键是 CID（不是 id）', fd?.list?.[0]?.CID !== undefined, `CID=${fd?.list?.[0]?.CID}`);
 check('评论 expinfo 是对象', fd?.list?.[0]?.expinfo !== null && typeof fd?.list?.[0]?.expinfo === 'object',
   `level_name=${fd?.list?.[0]?.expinfo?.level_name}`);
@@ -396,19 +456,27 @@ const capabilities = [
   ['hasCommentRead', true, (fd?.list?.length ?? 0) > 0],
   ['hasSubComment', true, (fd?.list ?? []).some((c) => (c.replys?.length ?? 0) > 0)],
   ['hasCommentWrite', false, null],
-  ['hasFavouriteStateRead', true, ad?.is_favorite !== undefined],
+  ['hasFavouriteStateRead', true, auth.favorite],
   ['hasPaidNotice', true, ad?.price !== undefined],
   ['hasLogin', true, null],
-  ['hasCloudFavouriteRead', false, null],
-  ['hasCloudFavouriteWrite', false, null],
-  ['hasDailyCheckIn', false, null],
-  ['hasCloudHistory', false, null],
+  // 登录侧四能力 2026-09-25 实测打通；本次带凭据时做只读复核（翻转写侧与签到 POST 不跑）
+  ['hasCloudFavouriteRead', true, auth.favorite],
+  ['hasCloudFavouriteWrite', true, null],
+  ['hasDailyCheckIn', true, auth.daily],
+  ['hasCloudHistory', true, auth.watch],
+  // 0.1.5 新增面：promote 内容会轮换且 data 会轮换对象/裸数组两种形态，两者都算端点可用
+  ['hasPromote', true, (() => {
+    const pd = promote?.envelope?.data;
+    return !!promote && promote.envelope?.code === 200 && (Array.isArray(pd) || Array.isArray(pd?.list));
+  })()],
+  // 频道（汉化组/去码/全彩化）基于 /search 关键词实现，search 探测通过即视为可用
+  ['hasChannels', true, !!search],
 ];
 
 let mismatches = 0;
 for (const [name, declared, actual] of capabilities) {
   const verdict = actual === null
-    ? '需账号验证 · 保持 false'
+    ? '需账号验证 · 保持声明值'
     : actual === declared
       ? '一致'
       : '⚠ 不一致，需复核';

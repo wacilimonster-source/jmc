@@ -35,6 +35,7 @@ import android.content.Context
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jmread.core.log.CrashReporter
 import com.jmread.core.log.LogStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -65,6 +66,59 @@ fun LogScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            // 顶部：上次会话异常取证（崩溃堆栈/ANR/系统终止原因/主线程冻结栈）。
+            // LogStore 是内存态、随进程死亡清零，这份落盘报告是「闪退后日志为空」时的唯一证据。
+            var crashReport by remember {
+                mutableStateOf(CrashReporter.pendingReport(context))
+            }
+            if (crashReport != null) {
+                var expanded by remember { mutableStateOf(false) }
+                androidx.compose.material3.Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            text = "检测到上次会话异常证据",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Text(
+                            text = "上次运行的崩溃 / ANR / 系统终止取证报告，可复制后留存",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Row(modifier = Modifier.padding(top = 4.dp)) {
+                            TextButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("crash", crashReport))
+                            }) { Text("复制") }
+                            TextButton(onClick = { expanded = !expanded }) {
+                                Text(if (expanded) "收起" else "展开")
+                            }
+                            TextButton(onClick = {
+                                CrashReporter.dismissReport(context)
+                                crashReport = null
+                            }) { Text("忽略") }
+                        }
+                        if (expanded) {
+                            Text(
+                                text = crashReport.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

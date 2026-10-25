@@ -3,15 +3,18 @@ package com.jmread.network
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
@@ -530,7 +533,40 @@ data class JmPromoteResponse(
  * /promote?page= 的频道 block 列表。
  * ⚠ 实测内容会轮换：首测 8 个 block，复测两次返回空列表 —— 调用方必须容空（best-effort）。
  */
-@Serializable
+/**
+ * /promote 的 data 双形态序列化器。
+ *
+ * 实测 data 会**轮换两种形态**（同一端点不同时间各录得一次）：
+ *   `{"list": [block…]}`  对象形态（2026-09-25 fixture）
+ *   `[block…]`            裸数组形态（2026-10-25 probe，data 直接是 8 个 block）
+ * 只声明一种时，另一种会让整包解析抛异常、被 promoteBlocks 的 runCatching 吞掉，
+ * 推荐频道明明有内容却永远显示「暂不可用」——容空设计掩盖了这种静默失败。
+ */
+object JmPromoteDataSerializer : KSerializer<JmPromoteData> {
+    override val descriptor: SerialDescriptor = JsonElement.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): JmPromoteData {
+        val el = (decoder as? JsonDecoder)?.decodeJsonElement() ?: return JmPromoteData()
+        return when (el) {
+            is JsonArray -> JmPromoteData(decodeBlocks(el))
+            is JsonObject -> (el["list"] as? JsonArray)?.let { JmPromoteData(decodeBlocks(it)) } ?: JmPromoteData()
+            else -> JmPromoteData()
+        }
+    }
+
+    private fun decodeBlocks(arr: JsonArray): List<JmPromoteBlock> =
+        arr.mapNotNull { element ->
+            runCatching {
+                Json.decodeFromString(JmPromoteBlock.serializer(), element.toString())
+            }.getOrNull()
+        }
+
+    override fun serialize(encoder: Encoder, value: JmPromoteData) {
+        encoder.encodeSerializableValue(ListSerializer(JmPromoteBlock.serializer()), value.list)
+    }
+}
+
+@Serializable(with = JmPromoteDataSerializer::class)
 data class JmPromoteData(
     val list: List<JmPromoteBlock> = emptyList(),
 )

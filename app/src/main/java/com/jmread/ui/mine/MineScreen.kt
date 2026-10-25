@@ -190,6 +190,14 @@ private fun CheckInCard(onMessage: (String) -> Unit) {
 
     LaunchedEffect(Unit) { loadCalendar() }
 
+    // 签到当日守卫：今天已签（record 里当日 signed=true）则按钮禁用，不再发 /daily_chk
+    // （设计 §6 风险登记：成功后当日不再发请求，避免重复点击触发风控）
+    val todaySigned = remember(calendar) {
+        val today = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_MONTH)
+        val todayStr = today.toString().padStart(2, '0')
+        calendar?.record?.any { week -> week.any { it.date == todayStr && it.signed } } ?: false
+    }
+
     Card {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -225,12 +233,12 @@ private fun CheckInCard(onMessage: (String) -> Unit) {
                                 }
                             }
                         },
-                        enabled = !checking,
+                        enabled = !checking && !todaySigned,
                     ) {
                         if (checking) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
-                            Text("签到")
+                            Text(if (todaySigned) "今日已签" else "签到")
                         }
                     }
                 }

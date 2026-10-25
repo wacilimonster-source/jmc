@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -78,6 +79,21 @@ fun ComicGridView(
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.padding(16.dp))
                 }
+            }
+        }
+        // 终态页脚：分页流到头（endReached）且确有内容时显示，跨全部列
+        // （产品设计 §5.1/§8：第 125 页出现「到底了」——停止机制早已在，这里是可见文案）
+        if (!loading && endReached && comics.isNotEmpty()) {
+            item(key = "end-reached", span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    text = "到底了",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                )
             }
         }
     }

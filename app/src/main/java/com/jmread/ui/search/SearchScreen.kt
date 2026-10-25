@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -67,6 +69,8 @@ fun SearchScreen(
     val tags by viewModel.tags.collectAsState()
     val dimension by viewModel.dimension.collectAsState()
     val total by viewModel.total.collectAsState()
+    // 搜索历史（10 条去重置顶）：空态时展示，点词直达、页内可清空
+    val history by com.jmread.data.SearchHistory.keywords.collectAsState()
     // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
     var input by remember { mutableStateOf(viewModel.keyword.value) }
     var showTagSheet by remember { mutableStateOf(false) }
@@ -275,6 +279,41 @@ fun SearchScreen(
                                 .padding(top = 12.dp)
                                 .clickable { viewModel.search(keyword, page = 1) },
                         )
+                    }
+                    // 搜索历史：仅在「无结果、未加载、无错误」时展示，避免挤占结果与错误态
+                    if (history.isNotEmpty() && keyword.isBlank() && !loading && searchError == null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("搜索历史", style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    "清空",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable { com.jmread.data.SearchHistory.clear() },
+                                )
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                history.forEach { kw ->
+                                    SuggestionChip(
+                                        onClick = {
+                                            input = kw
+                                            focusManager.clearFocus()
+                                            viewModel.search(kw, page = 1)
+                                        },
+                                        label = { Text(kw) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

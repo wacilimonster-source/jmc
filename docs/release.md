@@ -5,18 +5,33 @@
 
 ---
 
-## 0. 现状（2026-09-21 晚更新）
+## 0. 现状（2026-10-25 更新）
 
 | 环节 | 状态 |
 |---|---|
 | release 构建配置 | ✅ 已有（`app/build.gradle.kts`：minify + shrinkResources + 签名可环境变量覆盖） |
-| `gbuild.sh` 构建脚本 | ✅ 已有 |
-| 更新检查代码 | ✅ 已有（`core/update/UpdateManager.kt` + `ui/update/UpdateDialog.kt` + FileProvider） |
-| `update.json` | ✅ 已建立并**已跑通真实升级**（`wacilimonster-source/jmc`） |
+| `gbuild.sh` 构建脚本 | ✅ 已有（`release` 语法糖：单测 + assembleRelease + 按版本重命名 APK） |
+| 更新检查代码 | ✅ 已有（`UpdateManager` app 级下载状态机 + jsDelivr CDN 候选源 + `UpdateState` 免打扰） |
+| `update.json` | ✅ 已跑通真实升级链路（0.1.0 → 0.1.6 七版） |
 | 更新仓库 | ✅ `git@github.com:wacilimonster-source/jmc.git`（origin） |
-| 真机验收 checklist | 🟡 主链路已过（见 `verification-2026-09-21.md` §10.5），剩余 125 页上限 / 坏域名恢复 / 乱序命中率 |
+| 崩溃取证 | ✅ 0.1.6 起（CrashReporter 三通道 + 日志页横幅） |
+| 真机验收 | 🟡 0.1.5 起按「单测门禁通过即发版」，真机 checklist 持续欠账（见下） |
 
-当前版本：`versionCode 3` / `versionName 0.1.2`。
+当前版本：`versionCode 7` / `versionName 0.1.6`。
+
+> **金丝雀盯梢的三个环境漂移**（2026-10-25 `jm-api-check` 实测，均为 INFO 级）：
+> 1. `jm3_version` 升为 2.1.12 —— 兜底值已同步更新（JmCrypto / jm-lib）。
+> 2. **日榜 mv_t 已复活**（total=100）——「新晋热榜」暂维持月榜本地重排方案，后续评估是否切回直连。
+> 3. **c= 分类过滤已恢复**（doujin 流与未过滤流首项已不同）——0.1.5 记录的上游回归结束，
+>    分类页走协议正确发法，过滤自动生效；断言保留，若再次漂移会亮出。
+>
+> 仓库根 APK 按保留策略只留最近 2~3 个（0.1.4 起），更早的已删（git 历史可找回）。
+
+> **金丝雀取样缺陷修复**（2026-10-25 发版时发现并修掉）：`jm-api-check` 的采样作品
+> 是动态取的（浏览流首项），采到「单章无 series / 零评论」的作品时，
+> series-sort / 评论 CID / 评论 expinfo 三条形态断言会取不到字段而误报 FAIL
+> （当日实测浏览流首项 1485618 恰好两者皆空，DTO 实际无漂移）。
+> 修复：评论断言加固定富评论样本兜底（1474353），series 断言仅确有 series 时才检查。
 
 > **已验证的应用内升级链路**（2026-09-21 真机）：
 > 0.1.0 装机的 App 点「检查更新」→ 检测到 `v0.1.1` → 弹窗展示 `update.json.notes` →

@@ -200,6 +200,8 @@ class SearchViewModel : ViewModel() {
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()
         _multiSearchComplete.value = false
+        // 记入搜索历史（空白词内部忽略；标签搜索也走这里，一并记录）
+        com.jmread.data.SearchHistory.record(keyword)
 
         // 搜索键 = 关键词 + 维度 + 排序，用于过期的响应丢弃
         _activeSearchKey = "${_dimension.value.mainTag}|${_sort.value.name}|$keyword"

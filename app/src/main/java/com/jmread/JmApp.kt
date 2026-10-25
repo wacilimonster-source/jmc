@@ -5,6 +5,9 @@ import coil.Coil
 import coil.ImageLoader
 import com.jmread.core.JmRepository
 import com.jmread.core.download.DownloadManager
+import com.jmread.core.log.AppSessionState
+import com.jmread.core.log.CrashReporter
+import com.jmread.core.log.MainThreadWatchdog
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.core.scramble.JmImageFetcher
 import com.jmread.core.scramble.JmUrlKeyer
@@ -16,6 +19,7 @@ import com.jmread.data.FollowSettings
 import com.jmread.data.GridSettings
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.ReaderStatus
+import com.jmread.data.SearchHistory
 import com.jmread.data.SecureAccountStore
 import com.jmread.data.SourcePrefs
 import com.jmread.data.UpdatedAtCache
@@ -30,9 +34,15 @@ class JmApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 崩溃取证最先装：先汇总上次会话的诊断证据（退出原因/冻结栈），再挂崩溃钩子
+        CrashReporter.install(this)
+        MainThreadWatchdog.start(this)
+        AppSessionState.register(this)
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
         GridSettings.init(this)
+        SearchHistory.init(this)
+        com.jmread.core.update.UpdateState.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
         appScope.launch { ReaderStatus.loadAll(this@JmApp) }
         CategorySettings.init(this)

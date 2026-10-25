@@ -23,8 +23,8 @@ import crypto from 'node:crypto';
 /** 签名密钥（与 JmCrypto.APP_SECRET 一致） */
 export const APP_SECRET = '185Hcomic3PAPP7R';
 
-/** 版本号兜底值（与 JmCrypto.FALLBACK_VERSION 一致；运行时以 /setting.jm3_version 为准） */
-export const FALLBACK_VERSION = '2.1.8';
+/** 版本号兜底值（与 JmCrypto.FALLBACK_VERSION 一致；2026-10-25 线上 jm3_version=2.1.12；运行时以 /setting.jm3_version 为准） */
+export const FALLBACK_VERSION = '2.1.12';
 
 /** 编译期内置镜像（与 DomainPool.BUILTIN_API_HOSTS 一致） */
 export const BUILTIN_API_HOSTS = [
@@ -269,8 +269,17 @@ export class JmApi {
     return this.request(`/favorite?${new URLSearchParams({ page: String(page), folder_id: '0', o: 'mr' })}`);
   }
 
-  async daily() {
-    return this.request('/daily');
+  /** 签到月历。⚠ 不带 user_id 时 data=[]（「未登录」与「未签到」无法区分），登录后必须带 uid */
+  async daily(userId = '') {
+    const q = new URLSearchParams();
+    if (userId) q.set('user_id', String(userId));
+    const qs = q.toString();
+    return this.request(`/daily${qs ? `?${qs}` : ''}`);
+  }
+
+  /** 推荐本本（公开端点；内容会轮换，间歇返回空列表，best-effort） */
+  async promote(page = 1) {
+    return this.request(`/promote?${new URLSearchParams({ page: String(page) })}`);
   }
 
   async watchList(page = 1) {
@@ -288,10 +297,10 @@ export function selftest() {
   add('md5("abc") 已知向量', md5('abc') === '900150983cd24fb0d6963f7d28e17f72', md5('abc'));
 
   // 2. 签名形态：token 是 32 位小写 hex，tokenparam 是 "ts,version"
-  const s = sign('2.1.8');
+  const s = sign(FALLBACK_VERSION);
   add('token 为 32 位小写 hex', /^[0-9a-f]{32}$/.test(s.token), s.token);
   add('token 与 ts 一致', s.token === md5(`${s.ts}${APP_SECRET}`), `ts=${s.ts}`);
-  add('tokenparam 形态正确', s.tokenparam === `${s.ts},2.1.8`, s.tokenparam);
+  add('tokenparam 形态正确', s.tokenparam === `${s.ts},${FALLBACK_VERSION}`, s.tokenparam);
 
   // 3. 加解密往返：用同一套 key 自己加密再解回来
   const ts = s.ts;

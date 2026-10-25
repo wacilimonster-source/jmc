@@ -135,6 +135,11 @@ const ENDPOINTS = [
   { label: 'chapter', cls: 'JmChapterData' },
   { label: 'forum', cls: 'JmForumData' },
   { label: 'week', cls: 'JmWeekData' },
+  // 0.1.5 新增面：promote 公开；favorite/watch_list/daily 需带凭据跑 probe --update 后才有基线
+  { label: 'promote', cls: 'JmPromoteData' },
+  { label: 'favorite', cls: 'JmListData' },
+  { label: 'watch_list', cls: 'JmListData' },
+  { label: 'daily', cls: 'JmDailyCalendar' },
 ];
 
 // ---------- 3. 递归比对 ----------

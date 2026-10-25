@@ -59,4 +59,13 @@ object WebtoonSliceCache {
             }
         }
     }
+
+    /** 已缓存章数（清除缓存入口的体积展示用） */
+    fun chapterCount(): Int = map.size
+
+    /** 一键清空（设置页「清除缓存」）：内存表与 SP 全清。缓存可重建，无用户数据 */
+    fun clear(context: Context) {
+        map.clear()
+        runCatching { sp(context).edit().clear().apply() }
+    }
 }
