@@ -1,7 +1,9 @@
 package com.jmread.ui.browse
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +53,8 @@ fun ComicGridView(
     listState: LazyGridState,
     onLoadMore: () -> Unit,
     onComicClick: (String) -> Unit = {},
+    /** 可选长按回调（本地书架删除等）；null 时保持普通点击 */
+    onComicLongClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
     showTailLoading: Boolean = true,
@@ -72,6 +76,7 @@ fun ComicGridView(
                 readStatus = readStatus,
                 largeTitle = columns == 2,
                 onClick = { onComicClick(comic.ref) },
+                onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
             )
         }
         if (loading && showTailLoading) {
@@ -113,6 +118,7 @@ fun ComicGridView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComicCard(
     comic: ComicSummary,
@@ -120,11 +126,18 @@ private fun ComicCard(
     /** 2 列大卡片时标题用更大字号 */
     largeTitle: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                }
+            ),
     ) {
         Box(
             modifier = Modifier

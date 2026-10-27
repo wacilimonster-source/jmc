@@ -168,10 +168,10 @@ enum class ComicStatus(val label: String) {
 /**
  * 榜单档位。
  *
- * ⚠ [H24] **不是服务端档位**：禁漫的日榜 `o=mv_t` 实测恒空（`total=0`，连测 6 轮稳定，
- * 参考实现 jm_config.py 里 `ORDER_DAY_RANKING='mv_t'` 确认参数没写错）。
- * 本档位由月榜数据**本地重排**得到 —— 取月榜前 2 页（160 条热度池），
- * 按「最近更新」倒序取前 40，即「热门里最近有更新的」。
+ * ⚠ [H24] 目前是**本地重排档位**，不是直连服务端日榜：
+ *   2026-09-19 时 `o=mv_t` 恒空；2026-10-25 金丝雀测得日榜已复活（total≈100）。
+ *   产品暂时维持「月榜热度池本地按最近更新重排」的方案（语义最接近日榜、且永不为空），
+ *   后续若要切回直连，把 [H24] 的 order 改成 "mv_t" 并让 availableRankTabs 探测它即可。
  *
  * [D7]/[D30] 是真实的服务端榜单（`o=mv_w` / `o=mv_m`，total 真实）。
  * 档位是否可用由 [com.jmread.core.JmRepository.availableRankTabs] 探测决定，

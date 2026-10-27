@@ -746,7 +746,8 @@ private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "${if (comic.finished) "已完结" else "连载中"} · ${comic.pagesCount}P · ${comic.epsCount} 话",
+                // 本源接口没有连载/完结字段：不渲染未经证实的「连载中/已完结」
+                text = "${comic.pagesCount}P · ${comic.epsCount} 话",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

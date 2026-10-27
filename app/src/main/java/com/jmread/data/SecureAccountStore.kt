@@ -45,10 +45,14 @@ object SecureAccountStore {
     private val emailKey = "email_JM"
     private val passKey = "pass_JM"
 
-    /** 登录成功后保存凭据（覆盖旧值）；用户关闭「保存账号密码」时不落盘 */
+    /** 登录成功后保存凭据（覆盖旧值）；用户关闭「保存账号密码」时不落盘并清掉旧凭据 */
     fun save(email: String, password: String) {
         val p = prefs ?: return
-        if (!saveEnabled) return
+        if (!saveEnabled) {
+            // 防止历史版本遗留的旧账号凭据继续被 401 钩子使用而静默登回旧账号
+            clear()
+            return
+        }
         try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())

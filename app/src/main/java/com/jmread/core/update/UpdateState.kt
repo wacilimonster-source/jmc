@@ -48,10 +48,17 @@ object UpdateState {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
+    /** 自动检查节流：首页每次重新进入都会触发 checkOnce，没必要每次都打 update.json */
+    private const val AUTO_CHECK_TTL_MS = 10 * 60 * 1000L
+    @Volatile private var lastAutoCheckAt = 0L
+
     /** 检查一次（幂等：已有结果不重复弹；被免打扰的版本不再打扰） */
     fun checkOnce() {
         scope.launch {
             if (_updateInfo.value != null) return@launch
+            val now = System.currentTimeMillis()
+            if (now - lastAutoCheckAt < AUTO_CHECK_TTL_MS) return@launch
+            lastAutoCheckAt = now
             val result = runCatching { UpdateManager.checkResult() }.getOrNull() ?: return@launch
             when (result) {
                 is UpdateManager.CheckResult.Available -> {

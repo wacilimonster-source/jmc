@@ -1,6 +1,7 @@
 package com.jmread.ui.favourite
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -8,16 +9,21 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,6 +75,7 @@ fun BookmarkScreen(
 ) {
     val comics by viewModel.comics.collectAsState()
     val listState = rememberLazyGridState()
+    var pendingRemove by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -97,18 +104,49 @@ fun BookmarkScreen(
                 )
             }
         } else {
-            ComicGridView(
-                comics = comics,
-                loading = false,
-                endReached = true,
-                listState = listState,
-                onLoadMore = {},
-                onComicClick = onComicClick,
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(innerPadding),
-                showTailLoading = false,
-            )
+            ) {
+                Text(
+                    text = "长按封面可移出书架",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+                )
+                ComicGridView(
+                    comics = comics,
+                    loading = false,
+                    endReached = true,
+                    listState = listState,
+                    onLoadMore = {},
+                    onComicClick = onComicClick,
+                    onComicLongClick = { pendingRemove = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    showTailLoading = false,
+                )
+            }
         }
+    }
+
+    pendingRemove?.let { comicId ->
+        val title = comics.firstOrNull { it.id == comicId }?.title.orEmpty()
+        AlertDialog(
+            onDismissRequest = { pendingRemove = null },
+            title = { Text("移出本地书架") },
+            text = { Text("确定把「${title.ifBlank { comicId }}」移出书架吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.remove(comicId)
+                    pendingRemove = null
+                }) { Text("移出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemove = null }) { Text("取消") }
+            },
+        )
     }
 }

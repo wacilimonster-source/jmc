@@ -2,6 +2,7 @@ package com.jmread.ui.reader
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -496,9 +497,14 @@ fun ReaderScreen(
                 }
 
                 pages.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { viewModel.load(context, ref, order) },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Text(
-                            text = "加载失败，点击返回重试",
+                            text = "加载失败，点击重试",
                             color = Color.White,
                             style = MaterialTheme.typography.bodyMedium,
                         )

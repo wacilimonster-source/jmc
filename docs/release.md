@@ -5,20 +5,21 @@
 
 ---
 
-## 0. 现状（2026-10-25 更新）
+## 0. 现状（2026-10-27 更新）
 
 | 环节 | 状态 |
 |---|---|
 | release 构建配置 | ✅ 已有（`app/build.gradle.kts`：minify + shrinkResources + 签名可环境变量覆盖） |
 | `gbuild.sh` 构建脚本 | ✅ 已有（`release` 语法糖：单测 + assembleRelease + 按版本重命名 APK） |
 | 更新检查代码 | ✅ 已有（`UpdateManager` app 级下载状态机 + jsDelivr CDN 候选源 + `UpdateState` 免打扰） |
-| `update.json` | ✅ 已跑通真实升级链路（0.1.0 → 0.1.7 八版） |
+| `update.json` | ✅ 已跑通真实升级链路（0.1.0 → 0.1.8 九版） |
 | 更新仓库 | ✅ `git@github.com:wacilimonster-source/jmc.git`（origin） |
 | 崩溃取证 | ✅ 0.1.6 起（CrashReporter 三通道 + 日志页横幅） |
 | 每日自动签到 | ✅ 0.1.7 起（登录后后台自动；状态并入用户信息行；0.1.5 前老登录缺 uid 自愈补齐） |
+| 阅读管线 | ✅ 0.1.8 起（在线乱序还原 + 离线下载阅读 + 图片磁盘缓存） |
 | 真机验收 | 🟡 0.1.5 起按「单测门禁通过即发版」，真机 checklist 持续欠账（见下） |
 
-当前版本：`versionCode 8` / `versionName 0.1.7`。
+当前版本：`versionCode 9` / `versionName 0.1.8`。
 
 > **金丝雀盯梢的环境漂移**（2026-10-25 `jm-api-check` 实测）：
 > 1. `jm3_version` 升为 2.1.12 —— 兜底值已同步更新（JmCrypto / jm-lib）。

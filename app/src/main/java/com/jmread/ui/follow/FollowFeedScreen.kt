@@ -39,15 +39,11 @@ import com.jmread.data.FollowFeedCache
 import com.jmread.data.FollowSettings
 import com.jmread.data.UpdatedAtCache
 import com.jmread.ui.browse.ComicGridView
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
 /** 关注来源类型 */
 private enum class FollowTargetType { AUTHOR, KEYWORD }
@@ -60,8 +56,14 @@ private data class FollowTarget(
     val tag: String? = null,
 )
 
+/** 关键词交集搜索的一个数据源：mainTag=0 关键词 / 2 作者 / 3 官方标签 */
+private data class SearchSource(val mainTag: Int, val query: String)
+
 /** 相邻关注来源之间的请求间隔（本源限速宽松，间隔只为礼貌） */
 private const val TARGET_REQUEST_INTERVAL_MS = 300L
+
+/** 关注流是按 120 条截断的聚合流；交集只需取有限页，避免一次刷新打出上百个请求 */
+private const val MAX_FOLLOW_INTERSECTION_PAGES = 10
 
 /** 一次关注流拉取的结果 */
 private data class FollowFetchResult(
@@ -191,7 +193,8 @@ class FollowFeedViewModel : ViewModel() {
             result += try {
                 when (target.type) {
                     FollowTargetType.AUTHOR ->
-                        searchWithRetry(target.name, page, emptyList())
+                        // 作者维度搜索（main_tag=2），不是综合关键词搜索
+                        searchWithRetry(target.name, page, mainTag = 2)
                             .also { r ->
                                 targetPages[target.key] = page
                                 if (page >= r.pages) targetEnded[target.key] = true
@@ -209,17 +212,21 @@ class FollowFeedViewModel : ViewModel() {
         return FollowFetchResult(result, failed)
     }
 
-    /** 组合关键词：每词分别全文搜索取 id 交集（"且"关系） */
+    /**
+     * 组合关键词：每词分别全文搜索取 id 交集（"且"关系）。
+     *
+     * 标签不是分类：官方标签词表必须走 main_tag=3（标签维度搜索）后再与关键词结果取交集。
+     * 旧实现把标签塞进 /search 的 c=（分类 slug）参数，标签关注因此长期静默为空。
+     */
     private suspend fun fetchKeywordPage(target: FollowTarget, startPage: Int): List<ComicSummary> {
-        val categories = if (target.tag == null) emptyList() else listOf(target.tag)
-        val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+        val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.isEmpty()) {
             targetPages[target.key] = startPage
             targetEnded[target.key] = true
             return emptyList()
         }
         if (words.size <= 1 && target.tag == null) {
-            val result = searchWithRetry(target.name, startPage, emptyList())
+            val result = searchWithRetry(target.name, startPage, mainTag = 0)
             targetPages[target.key] = startPage
             if (startPage >= result.pages) targetEnded[target.key] = true
             return result.items
@@ -228,36 +235,53 @@ class FollowFeedViewModel : ViewModel() {
             targetEnded[target.key] = true
             return emptyList()
         }
-        val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
-            words.map { word ->
-                async {
-                    val first = com.jmread.core.runCatchingCancellable { searchWithRetry(word, 1, categories) }.getOrNull()
-                    word to (first?.pages ?: 1).coerceIn(1, 25)
+
+        // 关键词用 mainTag=0；标签用 mainTag=3。首页结果复用，避免同一页请求两次。
+        val sources = buildList {
+            words.forEach { add(SearchSource(mainTag = 0, query = it)) }
+            target.tag?.takeIf { it.isNotBlank() }?.let { add(SearchSource(mainTag = 3, query = it)) }
+        }
+        val firstResults = sources.map { src ->
+            src to com.jmread.core.runCatchingCancellable {
+                searchWithRetry(src.query, 1, src.mainTag)
+            }.getOrNull()
+        }
+        // 任一数据源首页失败都按「该关注来源本轮失败」处理：否则交集为空会被误当成
+        // 「没有匹配作品」，用户完全看不到失败提示。
+        if (firstResults.any { it.second == null }) {
+            throw IllegalStateException("关注来源搜索失败（关键词/标签）")
+        }
+
+        val resultSets = firstResults.map { (src, first) ->
+            val pages = (first?.pages ?: 1).coerceIn(1, MAX_FOLLOW_INTERSECTION_PAGES)
+            buildList {
+                first?.items?.let { addAll(it) }
+                for (p in 2..pages) {
+                    com.jmread.core.runCatchingCancellable {
+                        searchWithRetry(src.query, p, src.mainTag)
+                    }.getOrNull()?.let { addAll(it.items) }
                 }
-            }.map { it.await() }
+            }
         }
-        val wordSets: List<List<ComicSummary>> = wordPageCounts.map { (word, pages) ->
-            (1..pages).mapNotNull { p ->
-                com.jmread.core.runCatchingCancellable { searchWithRetry(word, p, categories) }.getOrNull()?.items
-            }.flatten()
-        }
-        val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
-        val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
+        val idSets = resultSets.map { set -> set.map { it.id }.toSet() }
+        val common = idSets.firstOrNull()
+            ?.filter { id -> idSets.all { it.contains(id) } }
+            .orEmpty()
         targetPages[target.key] = 25
         targetEnded[target.key] = true
-        val firstSetById = wordSets[0].associateBy { it.id }
+        val firstSetById = resultSets.firstOrNull().orEmpty().associateBy { it.id }
         return common.mapNotNull { firstSetById[it] }.sortedByComicSort(ComicSort.DD)
     }
 
     private suspend fun searchWithRetry(
         word: String,
         page: Int,
-        categories: List<String> = emptyList(),
+        mainTag: Int = 0,
     ): com.jmread.core.model.PageResult<ComicSummary> {
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
-                return JmRepository.search(word, page, ComicSort.DD, categories = categories)
+                return JmRepository.searchDimension(word, page, ComicSort.DD, mainTag = mainTag)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 last = e

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -191,6 +192,7 @@ object CrashReporter {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun isAbnormalExit(reason: Int): Boolean =
         reason == ApplicationExitInfo.REASON_ANR ||
             reason == ApplicationExitInfo.REASON_LOW_MEMORY ||
@@ -200,6 +202,7 @@ object CrashReporter {
             reason == ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE ||
             reason == ApplicationExitInfo.REASON_OTHER
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun exitReasonText(info: ApplicationExitInfo): String = when (info.reason) {
         ApplicationExitInfo.REASON_ANR ->
             "应用无响应（ANR）——主线程被长时间阻塞，被系统终止"
@@ -316,12 +319,19 @@ object MainThreadWatchdog {
         thread(name = "main-thread-watchdog", isDaemon = true) {
             val arrived = AtomicBoolean(false)
             var lastDump = 0L
+            var lastForeground: Boolean? = null
             while (true) {
                 arrived.set(false)
                 main.post { arrived.set(true) }
                 Thread.sleep(4000)
                 val ctx = appContext
-                if (ctx != null) CrashReporter.writeHeartbeat(ctx)
+                val foreground = AppSessionState.isForeground
+                // 前后台切换各落一次（fg/bg 标记供退出原因判定）；前台每 4s 心跳，
+                // 后台不再高频写盘（原实现整个生命周期每 4 秒写一次文件）。
+                if (ctx != null && (foreground || lastForeground != foreground)) {
+                    CrashReporter.writeHeartbeat(ctx)
+                }
+                lastForeground = foreground
                 if (!arrived.get()) {
                     val now = System.currentTimeMillis()
                     if (now - lastDump >= 10_000) {

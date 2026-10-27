@@ -144,21 +144,26 @@ class SearchViewModel : ViewModel() {
     fun resetAll() {
         searchJob?.cancel()
         multiSearchJob?.cancel()
+        searchJob = null
+        multiSearchJob = null
         _activeSearchKey = ""
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()
-        _multiSearchComplete.value = false
+        _multiSearchComplete.value = true
         _multiLoading.value = false
         _loading.value = false
         _searchError.value = null
         _dimension.value = SearchDimension.SITE
-        resetFilters()
+        _sort.value = ComicSort.DD
         _keyword.value = ""
         _comics.value = emptyList()
-        _endReached.value = false
+        _endReached.value = true
         _totalPages.value = 1
         _currentPage.value = 1
         _total.value = 0
+        _shouldScrollToTop.value++
+        // 不能复用 resetFilters()：它会用被清空前的旧关键词立刻发起一次搜索，
+        // 结果虽然会被 activeKey 校验丢弃，但白白多打一轮网络。
     }
 
     /**
@@ -254,11 +259,14 @@ class SearchViewModel : ViewModel() {
         startPage: Int,
     ) {
         coroutineScope {
-            val wordPageCounts = words.map { word ->
-                val first = com.jmread.core.runCatchingCancellable {
+            // 首页结果先取一次并复用：此前 stage 1 会把每词的首页再请求一遍。
+            val firstResults: Map<String, PageResult<ComicSummary>?> = words.associateWith { word ->
+                com.jmread.core.runCatchingCancellable {
                     searchWithRetry(word, startPage)
                 }.getOrNull()
-                word to (first?.pages ?: 1).coerceIn(1, 25)
+            }
+            val wordPageCounts = words.map { word ->
+                word to (firstResults[word]?.pages ?: 1).coerceIn(1, 25)
             }
 
             val wordProgress = words.associateWith { startPage - 1 }.toMutableMap()
@@ -269,7 +277,8 @@ class SearchViewModel : ViewModel() {
             // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
                 val page = (wordProgress[word] ?: 0) + 1
-                val items = com.jmread.core.runCatchingCancellable {
+                val cachedFirst = if (page == startPage) firstResults[word] else null
+                val items = cachedFirst?.items ?: com.jmread.core.runCatchingCancellable {
                     searchWithRetry(word, page)
                 }.getOrNull()?.items ?: emptyList()
                 if (items.isNotEmpty()) {

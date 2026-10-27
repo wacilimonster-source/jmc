@@ -167,6 +167,7 @@ fun SearchScreen(
                         IconButton(onClick = {
                             focusManager.clearFocus()
                             input = ""
+                            filterPage = 1
                             viewModel.resetAll()
                         }) {
                             Icon(Icons.Filled.Close, contentDescription = "重置")
@@ -194,7 +195,11 @@ fun SearchScreen(
                 item(key = d.name) {
                     FilterChip(
                         selected = dimension == d,
-                        onClick = { viewModel.setDimension(d) },
+                        onClick = {
+                            viewModel.setDimension(d)
+                            filterPage = 1
+                            listState.requestScrollToItem(0)
+                        },
                         label = { Text(d.label) },
                     )
                 }
@@ -306,6 +311,7 @@ fun SearchScreen(
                                     SuggestionChip(
                                         onClick = {
                                             input = kw
+                                            filterPage = 1
                                             focusManager.clearFocus()
                                             viewModel.search(kw, page = 1)
                                         },
@@ -395,6 +401,8 @@ fun SearchScreen(
                             onClick = {
                                 showTagSheet = false
                                 viewModel.searchTag(tag)
+                                filterPage = 1
+                                listState.requestScrollToItem(0)
                             },
                             label = { Text(tag) },
                         )

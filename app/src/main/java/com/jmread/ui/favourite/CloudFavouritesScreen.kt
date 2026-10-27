@@ -182,10 +182,18 @@ fun CloudFavouritesScreen(
                     }
                 }
                 else -> {
+                    if (error != null) {
+                        Text(
+                            text = "加载失败：$error",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
                     ComicGridView(
                         comics = comics,
                         loading = loading,
-                        endReached = true,
+                        endReached = currentPage >= totalPages,
                         listState = listState,
                         onLoadMore = {},
                         onComicClick = onComicClick,

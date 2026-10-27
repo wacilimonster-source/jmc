@@ -256,7 +256,13 @@ fun CategoryComicsScreen(
                 items(supportedSorts, key = { it.name }) { s ->
                     FilterChip(
                         selected = sort == s,
-                        onClick = { viewModel.setSort(s) },
+                        onClick = {
+                            viewModel.setSort(s)
+                            // 排序会重新加载第 1 页：分页条高亮必须同步归位，
+                            // 否则数据回到第 1 页、UI 还停在旧页码。
+                            filterPage = 1
+                            listState.requestScrollToItem(0)
+                        },
                         label = { Text(s.label) },
                     )
                 }

@@ -2,8 +2,11 @@ package com.jmread.core.scramble
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
+import coil.disk.DiskCache
 import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.key.Keyer
@@ -16,20 +19,47 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okio.Buffer
+import okio.FileSystem
 import java.io.IOException
 
 /**
  * 图片缓存键：被打乱的章节图以 "#de" 后缀缓存「还原后」的字节/位图，
  * 与原始字节的缓存隔离（否则错乱版本会被缓存住——PiKA 实测的坑）。
+ *
+ * ⚠ 必须注册为 [Keyer]<[Uri]> 而不是 Keyer<String>：
+ *   Coil 2.7 在挑选 Fetcher/Keyer **之前** 会先用默认 StringMapper 把 String 映射成 Uri，
+ *   按 String 注册的自定义组件永远不会命中（0.1.7 及以前的「乱序还原失效」根因）。
  */
-class JmUrlKeyer : Keyer<String> {
-    override fun key(data: String, options: Options): String = when {
-        // 手动覆盖请求自带独立后缀，直接作 key（与自动判定结果缓存隔离）
-        data.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) ||
-            data.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> data
-        ImageScrambler.isPhotoUrl(data) -> "$data#de"
-        else -> data
-    }
+class JmUrlKeyer : Keyer<Uri> {
+    override fun key(data: Uri, options: Options): String = jmImageCacheKey(data.toString())
+}
+
+/**
+ * 图片缓存键：章节图（被打乱）用 "#de" 后缀缓存还原后的字节；
+ * 手动覆盖请求保留自身后缀；封面等其它 URL 用原 URL。
+ *
+ * 预取（ReaderViewModel.preloadNearby）必须使用同一个 key，
+ * 否则预取的字节会落在另一个缓存键下、展示请求无法命中。
+ */
+internal fun jmImageCacheKey(url: String): String = when {
+    // 手动覆盖请求自带独立后缀，直接作 key（与自动判定结果缓存隔离）
+    url.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) ||
+        url.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> url
+    ImageScrambler.isPhotoUrl(url) -> "$url#de"
+    else -> url
+}
+
+/**
+ * 是否属于本 App 需要接管的禁漫图片 URL。
+ *
+ * 只接管章节图与封面：这两个路径需要乱序还原 / CDN 换线；
+ * 头像、外链图等其它 URL 必须返回 false，交给 Coil 默认实现按原 host 加载
+ * （否则会被误改写到图片 CDN host，头像等非 /media 路径会 404）。
+ */
+internal fun isJmImageUrl(url: String): Boolean {
+    val parsed = url.toHttpUrlOrNull() ?: return false
+    val path = parsed.encodedPath
+    return path.contains("/media/photos/") || path.contains("/media/albums/")
 }
 
 /**
@@ -44,11 +74,20 @@ class JmUrlKeyer : Keyer<String> {
 class JmImageFetcher(
     private val data: String,
     private val options: Options,
+    /** 自定义 Fetcher 不会走 HttpUriFetcher 的磁盘缓存，必须自己读写 Coil DiskCache */
+    private val diskCache: DiskCache?,
 ) : Fetcher {
 
-    class Factory : Fetcher.Factory<String> {
-        override fun create(data: String, options: Options, imageLoader: coil.ImageLoader): Fetcher =
-            JmImageFetcher(data, options)
+    /**
+     * 注册类型必须是 [Uri]（Coil 映射后的实际数据类型），见 [JmUrlKeyer] 的注释。
+     * 非禁漫图片路径返回 null，让默认 HttpUriFetcher / FileUriFetcher 接管。
+     */
+    class Factory : Fetcher.Factory<Uri> {
+        override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
+            val url = data.toString()
+            if (!isJmImageUrl(url)) return null
+            return JmImageFetcher(url, options, imageLoader.diskCache)
+        }
     }
 
     override suspend fun fetch(): coil.fetch.FetchResult = withContext(Dispatchers.IO) {
@@ -58,17 +97,54 @@ class JmImageFetcher(
             else -> null
         }
         val cleanUrl = ImageScrambler.stripManualSuffix(data)
-        val bytes = download(cleanUrl)
-        val processed = if (ImageScrambler.isPhotoUrl(cleanUrl)) {
-            ImageScrambler.processBytesIfNeeded(cleanUrl, bytes, force)
+        val cacheKey = jmImageCacheKey(data)
+        val cached = readFromDisk(cacheKey)
+        val (processed, source) = if (cached != null) {
+            cached to DataSource.DISK
         } else {
-            bytes
+            val bytes = download(cleanUrl)
+            val out = if (ImageScrambler.isPhotoUrl(cleanUrl)) {
+                // 章节图判定乱序并还原后再落盘/解码（离线与在线必须一致）
+                ImageScrambler.processBytesIfNeeded(cleanUrl, bytes, force)
+            } else {
+                bytes
+            }
+            writeToDisk(cacheKey, out)
+            out to DataSource.NETWORK
         }
         SourceResult(
             source = ImageSource(Buffer().apply { write(processed) }, options.context),
             mimeType = null,
-            dataSource = DataSource.NETWORK,
+            dataSource = source,
         )
+    }
+
+    /** 读 Coil 磁盘缓存；未命中/损坏返回 null（缓存损坏不能阻断图片加载） */
+    private fun readFromDisk(key: String): ByteArray? {
+        val cache = diskCache ?: return null
+        return runCatching {
+            cache.openSnapshot(key)?.use { snap ->
+                FileSystem.SYSTEM.read(snap.data) { readByteArray() }.takeIf { it.isNotEmpty() }
+            }
+        }.getOrNull()
+    }
+
+    /** 写 Coil 磁盘缓存（key 与展示请求一致；metadata 允许为空） */
+    private fun writeToDisk(key: String, bytes: ByteArray) {
+        val cache = diskCache ?: return
+        runCatching {
+            val editor = cache.openEditor(key) ?: return
+            try {
+                FileSystem.SYSTEM.write(editor.data) { write(bytes) }
+                FileSystem.SYSTEM.write(editor.metadata) { write(ByteArray(0)) }
+                editor.commit()
+            } catch (e: Exception) {
+                runCatching { editor.abort() }
+                throw e
+            }
+        }.onFailure {
+            LogStore.log("jm-img", "W", "图片磁盘缓存写入失败：${it.message?.take(70)}")
+        }
     }
 
     /**

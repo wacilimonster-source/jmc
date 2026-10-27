@@ -60,6 +60,8 @@ class SourcePrefs private constructor(private val appContext: Context) {
     @Volatile private var cachedResolvedImg: String? = null
     @Volatile private var cachedVersion: String? = null
     @Volatile private var cachedAgeConfirmed: Boolean? = null
+    /** 预热是否成功完成。false 时 getter 才需要磁盘兜底（区分「还没读」与「读到了空值」） */
+    @Volatile private var cacheLoaded = false
 
     private fun loadCache() {
         runCatching {
@@ -73,6 +75,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
                 cachedResolvedImg = prefs[Keys.JM_RESOLVED_IMG]?.takeIf { it.isNotEmpty() }
                 cachedVersion = prefs[Keys.JM_VERSION]?.takeIf { it.isNotEmpty() }
                 cachedAgeConfirmed = prefs[Keys.AGE_CONFIRMED] ?: false
+                cacheLoaded = true
             }
         }
     }
@@ -82,19 +85,31 @@ class SourcePrefs private constructor(private val appContext: Context) {
     val isLoggedIn: Boolean get() = !jmToken.isNullOrEmpty()
 
     val jmToken: String?
-        get() = cachedToken
-            ?: runBlocking {
+        get() = if (cacheLoaded) {
+            cachedToken
+        } else {
+            runBlocking {
                 appContext.dataStore.data.first()[Keys.JM_TOKEN]?.takeIf { it.isNotEmpty() }
-            }
+            }.also { cachedToken = it }
+        }
 
-    val jmAccount: String? get() = cachedAccount
+    val jmAccount: String?
+        get() = if (cacheLoaded) {
+            cachedAccount
+        } else {
+            runBlocking { appContext.dataStore.data.first()[Keys.JM_ACCOUNT] }
+                .also { cachedAccount = it }
+        }
 
     /** 登录用户 uid（未登录/旧会话为 null——签到月历需要它） */
     val jmUid: String?
-        get() = cachedUid
-            ?: runBlocking {
+        get() = if (cacheLoaded) {
+            cachedUid
+        } else {
+            runBlocking {
                 appContext.dataStore.data.first()[Keys.JM_UID]?.takeIf { it.isNotEmpty() }
-            }
+            }.also { cachedUid = it }
+        }
 
     suspend fun setJmLogin(token: String, account: String, uid: String = "") {
         cachedToken = token
@@ -122,10 +137,13 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
     /** 用户手填 API 域名（null/空 = 自动模式） */
     val jmBaseUrl: String?
-        get() = cachedManualBase
-            ?: runBlocking {
+        get() = if (cacheLoaded) {
+            cachedManualBase
+        } else {
+            runBlocking {
                 appContext.dataStore.data.first()[Keys.JM_BASE]?.takeIf { it.isNotEmpty() }
-            }
+            }.also { cachedManualBase = it }
+        }
 
     suspend fun setJmBaseUrl(value: String?) {
         cachedManualBase = value?.trim()?.takeIf { it.isNotEmpty() }
@@ -134,14 +152,28 @@ class SourcePrefs private constructor(private val appContext: Context) {
         }
     }
 
-    val resolvedBase: String? get() = cachedResolvedBase
+    val resolvedBase: String?
+        get() = if (cacheLoaded) {
+            cachedResolvedBase
+        } else {
+            runBlocking {
+                appContext.dataStore.data.first()[Keys.JM_RESOLVED_BASE]?.takeIf { it.isNotEmpty() }
+            }.also { cachedResolvedBase = it }
+        }
 
     suspend fun setResolvedBase(value: String) {
         cachedResolvedBase = value
         appContext.dataStore.edit { it[Keys.JM_RESOLVED_BASE] = value }
     }
 
-    val resolvedImgHost: String? get() = cachedResolvedImg
+    val resolvedImgHost: String?
+        get() = if (cacheLoaded) {
+            cachedResolvedImg
+        } else {
+            runBlocking {
+                appContext.dataStore.data.first()[Keys.JM_RESOLVED_IMG]?.takeIf { it.isNotEmpty() }
+            }.also { cachedResolvedImg = it }
+        }
 
     suspend fun setResolvedImgHost(value: String) {
         cachedResolvedImg = value
@@ -150,10 +182,13 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
     /** 签名头携带的客户端版本号：/setting.jm3_version 刷新，无下发时用编译期兜底 */
     val jmVersion: String?
-        get() = cachedVersion
-            ?: runBlocking {
+        get() = if (cacheLoaded) {
+            cachedVersion
+        } else {
+            runBlocking {
                 appContext.dataStore.data.first()[Keys.JM_VERSION]?.takeIf { it.isNotEmpty() }
-            }
+            }.also { cachedVersion = it }
+        }
 
     suspend fun setJmVersion(value: String) {
         cachedVersion = value
@@ -163,10 +198,13 @@ class SourcePrefs private constructor(private val appContext: Context) {
     // ---------- 18+ 确认 ----------
 
     val ageConfirmed: Boolean
-        get() = cachedAgeConfirmed
-            ?: runBlocking {
+        get() = if (cacheLoaded) {
+            cachedAgeConfirmed ?: false
+        } else {
+            runBlocking {
                 appContext.dataStore.data.first()[Keys.AGE_CONFIRMED] ?: false
             }.also { cachedAgeConfirmed = it }
+        }
 
     suspend fun setAgeConfirmed() {
         cachedAgeConfirmed = true

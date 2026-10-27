@@ -74,6 +74,7 @@ class ComicDetailViewModel : ViewModel() {
     /** 加载代数：切换漫画时自增，旧协程回调前校验，防止脏数据覆盖新漫画状态 */
     private var loadGeneration = 0
     private var loadJob: kotlinx.coroutines.Job? = null
+    private var favouriteInitJob: kotlinx.coroutines.Job? = null
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
@@ -105,6 +106,10 @@ class ComicDetailViewModel : ViewModel() {
         _comments.value = emptyList()
         _recommendations.value = emptyList()
         commentPage = 1
+        // 同一 VM 换漫画（详情页 launchSingleTop 重新导航）时先复位心形，避免短暂显示上一本的状态
+        _favourited.value = false
+        _favouriteError.value = null
+        favouriteInitJob?.cancel()
         // 读取本地历史进度（不阻塞主线程）
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (gen != loadGeneration) return@launch
@@ -132,17 +137,21 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val detail = JmRepository.comicDetail(comicId)
                 if (gen != loadGeneration) return@launch
-                // 心形初值：登录=云端收藏 id 集合（/album.is_favorite 恒 false 不可信），
-                // 未登录=本地书架。心形的操作语义见 favourite()
-                _favourited.value = if (JmRepository.isLoggedIn) {
-                    runCatching { JmRepository.isCloudFavourite(comicId) }.getOrDefault(false)
-                } else {
-                    Bookmarks.contains(comicId)
-                }
                 _comic.value = detail.also {
                     if (it.updatedAt.isNotBlank()) {
                         com.jmread.data.UpdatedAtCache.put(ref, it.updatedAt)
                     }
+                }
+                // 心形初值放到详情发布之后异步拉取：/favorite 可能连续请求 3 页，
+                // 网络不稳时绝不能让整个详情页等它（此前详情主体会被收藏接口阻塞数秒到数分钟）。
+                favouriteInitJob?.cancel()
+                favouriteInitJob = viewModelScope.launch {
+                    val fav = if (JmRepository.isLoggedIn) {
+                        runCatching { JmRepository.isCloudFavourite(comicId) }.getOrDefault(false)
+                    } else {
+                        Bookmarks.contains(comicId)
+                    }
+                    if (gen == loadGeneration) _favourited.value = fav
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -260,6 +269,8 @@ class ComicDetailViewModel : ViewModel() {
         val comic = _comic.value ?: return
         val comicId = loadedComicId
         if (comicId.isEmpty() || togglingFavourite) return
+        // 用户已主动操作：取消还没回来的初值拉取，避免旧值把刚翻转的结果盖掉
+        favouriteInitJob?.cancel()
         viewModelScope.launch {
             if (JmRepository.isLoggedIn && JmCapabilities.hasCloudFavouriteWrite) {
                 togglingFavourite = true
@@ -311,7 +322,11 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val result = JmRepository.comments(comicId, page)
                 if (gen != loadGeneration) return@launch
-                _comments.value = if (page == 1) result.items else _comments.value + result.items
+                val incoming = result.items
+                // 分页可能重叠（置顶/广告评论重复返回），按 CID 去重后再进 LazyColumn：
+                // 重复 key 会让 Compose 直接抛异常闪退。
+                _comments.value = (if (page == 1) incoming else _comments.value + incoming)
+                    .distinctBy { it.id }
                 // 子评论内嵌在响应里，缓存供展开时取（不重复请求）
                 result.items.forEach { c ->
                     if (c.replies.isNotEmpty()) allReplies[c.id] = c.replies

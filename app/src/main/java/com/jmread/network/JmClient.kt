@@ -148,6 +148,9 @@ object JmClient {
             } catch (e: JmException) {
                 // 业务异常（401/4xx）：换域无意义，直接上抛
                 throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 协程取消不是网络故障：按原语义放行，绝不当成 host 失败继续重试
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 LogStore.log("jm-net", "WARN", "host=$host 失败(${e.message?.take(80)})，换下一条线路")
@@ -291,7 +294,9 @@ object JmClient {
 
     /** 登录：POST /login（form: username + password）；返回 data（s=会话, uid=用户 id） */
     suspend fun login(email: String, password: String): JmLoginData {
-        val text = execute("/login", mapOf("username" to email, "password" to password))
+        // 登录请求必须跳过 401 静默重登钩子：钩子本身会再次调用 login，
+        // 密码失效时 login -> 401 -> hook -> login 会无限递归（StackOverflow）。
+        val text = execute("/login", mapOf("username" to email, "password" to password), retriedAuth = true)
         val resp = json.decodeFromString(JmLoginResponse.serializer(), text)
         if (resp.data.s.isBlank()) throw JmException("禁漫登录失败：${resp.errorMsg ?: text.take(120)}")
         return resp.data

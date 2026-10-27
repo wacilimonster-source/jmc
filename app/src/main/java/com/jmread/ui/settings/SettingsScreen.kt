@@ -51,6 +51,7 @@ import com.jmread.core.update.UpdateManager
 import com.jmread.data.GridSettings
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.SourcePrefs
+import com.jmread.network.BcTls
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,6 +132,14 @@ fun SettingsScreen(
                     headlineContent = { Text("图片乱序还原统计") },
                     supportingContent = { Text(ScrambleCache.statsText()) },
                 )
+                // BC TLS 是绕开 Cloudflare 指纹拦截的唯一依赖：安装失败必须让用户/排障可见
+                BcTls.lastError?.let { err ->
+                    SettingsRowDivider()
+                    ListItem(
+                        headlineContent = { Text("TLS 协议栈异常") },
+                        supportingContent = { Text(err) },
+                    )
+                }
             }
 
             // ── 浏览 ────────────────────────────────────────────────

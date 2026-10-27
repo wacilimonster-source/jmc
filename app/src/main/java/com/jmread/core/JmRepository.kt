@@ -14,6 +14,7 @@ import com.jmread.core.model.PageResult
 import com.jmread.core.model.RankTab
 import com.jmread.core.model.WeekPeriod
 import com.jmread.core.model.displayUpdatedAt
+import com.jmread.core.model.formatUnixDate
 import com.jmread.core.model.pagesOf
 import com.jmread.core.model.pickNewArrivals
 import com.jmread.data.SecureAccountStore
@@ -75,26 +76,42 @@ object JmRepository {
     /** 由 JmApp.onCreate 调用：装配 401 静默重登钩子 */
     fun init() {
         JmClient.onUnauthorizedHook = {
-            val cred = SecureAccountStore.load()
-            if (cred != null) {
-                runCatching { JmClient.login(cred.first, cred.second) }
-                    .onSuccess { SourcePrefs.current().setJmLogin(it.s, cred.first, it.uid) }
-                    .onFailure { SourcePrefs.current().clearJmLogin() }
-            } else {
-                SourcePrefs.current().clearJmLogin()
+            // 单飞：多个并发请求同时 401 时只跑一次重登；login 本身已跳过该钩子，
+            // 不存在 login -> 401 -> hook -> login 的递归。
+            reloginMutex.withLock {
+                val cred = SecureAccountStore.load()
+                if (cred != null) {
+                    runCatching { JmClient.login(cred.first, cred.second) }
+                        .onSuccess {
+                            SourcePrefs.current().setJmLogin(it.s, cred.first, it.uid)
+                            favIdsCache = null
+                        }
+                        .onFailure {
+                            SourcePrefs.current().clearJmLogin()
+                            favIdsCache = null
+                        }
+                } else {
+                    SourcePrefs.current().clearJmLogin()
+                    favIdsCache = null
+                }
             }
         }
     }
+
+    private val reloginMutex = Mutex()
 
     suspend fun login(account: String, password: String) {
         val data = JmClient.login(account, password)
         SourcePrefs.current().setJmLogin(data.s, account.trim(), data.uid)
         SecureAccountStore.save(account.trim(), password)
+        // 换账号后旧的收藏 id 集合不再成立
+        favIdsCache = null
     }
 
     suspend fun logout() {
         runCatching { JmClient.logout() }
         SourcePrefs.current().clearJmLogin()
+        favIdsCache = null
     }
 
     /** 启动/换域后的 /setting 刷新（失败静默：内置域名表兜底） */
@@ -195,7 +212,8 @@ object JmRepository {
     /**
      * 排行榜。
      *
-     * H24（新晋热榜）不是服务端档位：日榜 `o=mv_t` 实测恒空，见 [newArrivals]。
+     * H24（新晋热榜）目前不是服务端档位：日榜 `o=mv_t` 曾在 2026-09 恒空，
+     * 2026-10-25 金丝雀测得已复活（total≈100），但产品暂维持 [newArrivals] 的本地重排方案。
      * D7/D30 走服务端 `o=mv_w` / `o=mv_m`，total 真实。
      */
     suspend fun rank(type: String, page: Int = 1): PageResult<ComicSummary> {
@@ -305,7 +323,9 @@ object JmRepository {
             totalViews = a.totalViews.toLongSafe(),
             totalLikes = a.likes.toLongSafe(),
             commentsCount = a.commentTotal.toLongSafe(),
-            createdAt = a.addtime,
+            // addtime 线上可能是 "2026-10-20" 这类日期串，也可能是裸 unix 秒（如 1792490572）；
+            // 后者直接 take(10) 会显示成时间戳数字，必须归一化。
+            createdAt = a.addtime.toLongOrNull()?.let { formatUnixDate(it) } ?: a.addtime,
             isFavourite = a.isFavorite,
             isPaid = a.price.isNotBlank(),
         )
@@ -394,13 +414,20 @@ object JmRepository {
             if (!force && now - at < FAV_IDS_TTL_MS) return ids
         }
         val ids = HashSet<String>()
+        var complete = true
         // 拉前 3 页（240 本）覆盖绝大多数用户的收藏量；更多时以收藏列表页为准
         for (page in 1..3) {
-            val r = runCatching { favourites(page) }.getOrNull() ?: break
+            val r = runCatching { favourites(page) }.getOrNull()
+            if (r == null) {
+                complete = false
+                break
+            }
             ids += r.items.map { it.id }
             if (r.items.size < FAV_PAGE_SIZE) break
         }
-        favIdsCache = now to ids
+        // 只缓存完整结果：把失败时的半截集合缓存 5 分钟会让心形长期显示错误状态，
+        // 用户一点击就可能对服务端执行反向翻转（取消本来已收藏的作品）。
+        if (complete) favIdsCache = now to ids
         return ids
     }
 
@@ -505,7 +532,8 @@ object JmRepository {
             PromoteBlock(
                 id = block.id,
                 title = block.title,
-                comics = block.content.map { it.toSummary() },
+                // 服务端偶发重复条目：LazyRow 以 comic.id 作 key，重复会直接崩
+                comics = block.content.distinctBy { it.id }.map { it.toSummary() },
             )
         }
     }

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -136,6 +135,16 @@ fun PromoteScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),
                         )
+                        if (error != null) {
+                            Text(
+                                text = "点击重试",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(top = 10.dp)
+                                    .clickable { viewModel.load() },
+                            )
+                        }
                     }
                 }
             }
@@ -145,15 +154,15 @@ fun PromoteScreen(
                         .fillMaxSize()
                         .padding(innerPadding),
                 ) {
-                    blocks.forEach { block ->
-                        item(key = "head_${block.id}") {
+                    blocks.forEachIndexed { index, block ->
+                        item(key = "head_${index}_${block.id}") {
                             Text(
                                 text = block.title,
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
-                        item(key = "row_${block.id}") {
+                        item(key = "row_${index}_${block.id}") {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),

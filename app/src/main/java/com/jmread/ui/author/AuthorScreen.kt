@@ -186,6 +186,15 @@ fun AuthorComicsScreen(
                     )
                 }
             } else {
+                // 翻页失败但旧内容还在展示：给出可见错误，不能静默停留在旧页
+                if (error != null) {
+                    Text(
+                        text = "加载失败：$error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 ComicGridView(
                     comics = comics,
                     loading = loading,

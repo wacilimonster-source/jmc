@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.jmread.core.scramble.ImageScrambler
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -65,11 +66,25 @@ fun WebtoonSplitPage(
     // 原实现把 heightRatio 的 remember key 设为 (pageIndex, safeSliceCount)，
     // 切片数从 1 变为 n 时会把已测得的真实比例重置成 n×viewportAspect 的估算值，
     // 而 LaunchedEffect(intrinsicSize) 因尺寸未变不会重跑，于是分屏高度/偏移按估算值计算。
-    var measuredRatio by remember(pageIndex) { mutableStateOf<Float?>(null) }
+    // 真实比例/重试态按 imageUrl 记忆：LazyColumn 的 item key 是页码，
+    // 切章后同页码会复用旧状态，必须用图片 URL 作 key 才会重置。
+    var measuredRatio by remember(pageIndex, imageUrl) { mutableStateOf<Float?>(null) }
     val heightRatio: Float = measuredRatio ?: (safeSliceCount * viewportAspect)
 
-    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
-    var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
+    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）。
+    // 手动覆盖后缀必须留在最后：JmImageFetcher 靠 endsWith("#m1/#m0") 识别强制翻转。
+    var retryTick by remember(imageUrl) { mutableIntStateOf(0) }
+    val manualSuffix = when {
+        imageUrl.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) -> ImageScrambler.SUFFIX_FORCE_RESTORE
+        imageUrl.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> ImageScrambler.SUFFIX_FORCE_RAW
+        else -> ""
+    }
+    val retryUrl = if (retryTick == 0) {
+        imageUrl
+    } else {
+        val base = imageUrl.dropLast(manualSuffix.length)
+        "$base#retry$retryTick$manualSuffix"
+    }
     // 解码像素上限：单张位图高度封顶，防超长图整图解码 OOM 闪退；
     // 超出的部分按比例缩略，分割渲染仍完整展示，仅清晰度略降。
     // 上限按设备内存等级自适应（lowMemory 设备降到 4k，减轻 35MB/张 的位图压力）
@@ -77,7 +92,7 @@ fun WebtoonSplitPage(
     val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(LocalContext.current)
-            .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            .data(retryUrl)
             .size(coil.size.Size(
                 width = Int.MAX_VALUE,
                 height = decodeHeightCap,

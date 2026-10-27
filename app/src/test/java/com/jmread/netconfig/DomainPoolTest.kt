@@ -2,6 +2,7 @@ package com.jmread.netconfig
 
 import com.jmread.core.netconfig.DomainPool
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -89,5 +90,30 @@ class DomainPoolTest {
         assertEquals(host, DomainPool.imageHostOrder(host).last())
         DomainPool.markImageGood(host)
         assertEquals(host, DomainPool.imageHostOrder(host).first())
+    }
+
+    /**
+     * API host 的失败计数必须是「次数」而不是时间戳：
+     * 旧实现 `(badUntil[host] ?: 0) + 1` 对从未被标记的 host 永远算出 1，
+     * 连续失败达到阈值也不会进入回避期。
+     */
+    @Test
+    fun `API host 连续失败达到阈值后被 rotate 跳过`() {
+        val bad = DomainPool.currentApiHost
+        repeat(2) { DomainPool.markBad(bad) }
+        DomainPool.rotate()
+        assertNotEquals(bad, DomainPool.currentApiHost)
+    }
+
+    @Test
+    fun `API host 单次失败不会立即拉黑`() {
+        val host = DomainPool.currentApiHost
+        DomainPool.markBad(host)
+        val seen = mutableSetOf<String>()
+        repeat(DomainPool.allApiHosts.size) {
+            seen += DomainPool.currentApiHost
+            DomainPool.rotate()
+        }
+        assertTrue("单次失败仍应在轮换中出现", host in seen)
     }
 }

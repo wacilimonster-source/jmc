@@ -155,8 +155,9 @@ fun ChannelScreen(
     val listState = rememberLazyGridState()
 
     LaunchedEffect(channelId) {
-        viewModel.load(channelId, page = 1)
-        listState.requestScrollToItem(0)
+        // reloadKey 命中时 VM 会保留同频道的当前页与数据（从详情返回不再跳回第 1 页）。
+        // 这里不再显式回顶：首次进入列表本来就在顶部，返回时由 Navigation 恢复滚动位置。
+        viewModel.load(channelId, page = 1, reloadKey = channelId)
     }
 
     Scaffold(
@@ -232,6 +233,15 @@ fun ChannelScreen(
                     }
                 }
                 else -> {
+                    // 翻页失败但旧内容还在展示：必须显式提示，否则用户会以为已经翻到新页
+                    if (error != null) {
+                        Text(
+                            text = "加载失败：$error",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
                     ComicGridView(
                         comics = comics,
                         loading = loading,

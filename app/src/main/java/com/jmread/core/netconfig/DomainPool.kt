@@ -36,8 +36,12 @@ object DomainPool {
 
     @Volatile private var apiHosts: List<String> = BUILTIN_API_HOSTS
     @Volatile private var currentIdx = 0
-    @Volatile private var failCount = 0
+    /** 各 host 连续失败次数。此前拿 badUntil 的时间戳 +1 当次数，未标记过的 host 永远是 1，阈值形同虚设 */
+    @Volatile private var failCounts: Map<String, Int> = emptyMap()
     @Volatile private var badUntil: Map<String, Long> = emptyMap()
+
+    /** 上一次生效的手填域名（null/空 = 自动）。用于「清空手填后恢复自动线路」 */
+    @Volatile private var lastManualHost: String? = null
 
     @Volatile private var imgHosts: List<String> = BUILTIN_IMAGE_HOSTS
 
@@ -108,31 +112,44 @@ object DomainPool {
     /** 换域成功 / 请求成功时调用：记下可用 host */
     fun markGood(host: String) {
         synchronized(this) {
-            failCount = 0
+            if (failCounts.isNotEmpty()) failCounts = failCounts - host
             if (badUntil.isNotEmpty()) badUntil = badUntil - host
         }
     }
 
-    /** 请求失败时调用：累计到阈值把当前 host 打入回避期，游标切到下一个 */
+    /**
+     * 请求失败时调用：累计到阈值把当前 host 打入回避期。
+     * 不在这里 rotate——调用方（JmClient）失败后本来就会轮换，
+     * 这里再转一次会跳过下一条可用线路。
+     */
     fun markBad(host: String) {
         synchronized(this) {
-            val next = (badUntil[host] ?: 0L) + 1
+            val next = (failCounts[host] ?: 0) + 1
             if (next >= FAILS_BEFORE_SWITCH) {
                 badUntil = badUntil + (host to System.currentTimeMillis() + BAD_HOST_BACKOFF_MS)
-                failCount = 0
-                rotate()
+                failCounts = failCounts - host
             } else {
-                failCount = next.toInt()
+                failCounts = failCounts + (host to next)
             }
         }
     }
 
-    /** 立即切换到下一个可用 host（换域重试用） */
+    /** 立即切换到下一个可用 host（换域重试用）；跳过处于回避期的 host */
     fun rotate() {
         refreshHostList()
         synchronized(this) {
-            currentIdx = (currentIdx + 1).mod(apiHosts.size)
-            failCount = 0
+            if (apiHosts.isEmpty()) return
+            val now = System.currentTimeMillis()
+            val size = apiHosts.size
+            for (step in 1..size) {
+                val idx = (currentIdx + step).mod(size)
+                if ((badUntil[apiHosts[idx]] ?: 0L) <= now) {
+                    currentIdx = idx
+                    return
+                }
+            }
+            // 所有 host 都在回避期：仍要前进一格当兜底，不能永远卡在同一个坏 host
+            currentIdx = (currentIdx + 1).mod(size)
         }
     }
 
@@ -144,10 +161,29 @@ object DomainPool {
         synchronized(this) {
             if (!baseUrl.isNullOrBlank()) {
                 val host = baseUrl.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
-                apiHosts = (listOf(host) + apiHosts.filterNot { it.equals(host, true) })
-                // 下发域名放首位但不动游标所在 host（可能是刚验证可用的）
-                currentIdx = apiHosts.indexOfFirst { it.equals(host, true) }.coerceAtLeast(0)
+                // 手填域名优先级最高；/setting 下发值插在手填之后（没有手填时才放首位）。
+                // 旧实现无条件把下发域名放首位，用户手填的域名会被悄悄顶掉。
+                val manual = runCatching { SourcePrefs.current().jmBaseUrl }.getOrNull()
+                    ?.trim()
+                    ?.removePrefix("https://")
+                    ?.removePrefix("http://")
+                    ?.trimEnd('/')
+                    ?.takeIf { it.isNotBlank() }
+                apiHosts = if (manual != null) {
+                    (listOf(manual, host) + apiHosts.filterNot { it == manual || it == host })
+                        .distinct()
+                } else {
+                    (listOf(host) + apiHosts.filterNot { it == host }).distinct()
+                }
+                currentIdx = 0
+                lastManualHost = manual
                 badUntil = badUntil - host
+                failCounts = failCounts - host
+                if (manual != null) {
+                    // 用户重新指定了该域名：给它一次全新的尝试机会
+                    badUntil = badUntil - manual
+                    failCounts = failCounts - manual
+                }
             }
             if (!imgHost.isNullOrBlank()) {
                 val h = imgHost.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -161,21 +197,44 @@ object DomainPool {
         synchronized(this) {
             apiHosts = BUILTIN_API_HOSTS
             currentIdx = 0
-            failCount = 0
+            failCounts = emptyMap()
             badUntil = emptyMap()
             imgHosts = BUILTIN_IMAGE_HOSTS
             badImageUntil = emptyMap()
+            lastManualHost = null
         }
     }
 
+    /**
+     * 手填域名的生效/撤销检测。
+     *
+     * 旧实现只在「手填不是首位」时重建列表，用户把设置里的手填域名清空后，
+     * 旧手填域名会一直留在首位（直到进程重启），UI 却显示「自动」。
+     * 这里记住上一次生效的手填值：变更时重建候选表，清空时回到内置镜像。
+     */
     private fun refreshHostList() {
         // SourcePrefs 未初始化时（JVM 单测 / 早期）跳过手填合并，用内置表
         val manual = runCatching { SourcePrefs.current().jmBaseUrl }.getOrNull()
-        if (!manual.isNullOrBlank()) {
-            val host = manual.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
-            if (apiHosts.firstOrNull() != host) {
-                apiHosts = listOf(host) + BUILTIN_API_HOSTS
-                currentIdx = 0
+            ?.trim()
+            ?.removePrefix("https://")
+            ?.removePrefix("http://")
+            ?.trimEnd('/')
+            ?.takeIf { it.isNotBlank() }
+        if (manual == lastManualHost) return
+        lastManualHost = manual
+        synchronized(this) {
+            apiHosts = if (manual != null) {
+                listOf(manual) + BUILTIN_API_HOSTS
+            } else {
+                BUILTIN_API_HOSTS
+            }
+            currentIdx = 0
+            failCounts = failCounts.filterKeys { it in apiHosts }
+            badUntil = badUntil.filterKeys { it in apiHosts }
+            if (manual != null) {
+                // 手填值刚生效/刚变化：之前对该域名的回避不再沿用
+                failCounts = failCounts - manual
+                badUntil = badUntil - manual
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.jmread.ui.weekly
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,6 +62,9 @@ class WeeklyViewModel : ViewModel() {
 
     private var loaded = false
 
+    /** 切期请求代际：快速点多个期数时，旧响应不得覆盖新选择 */
+    private var selectGeneration = 0
+
     /** 首次进入：加载期数列表并选中最新一期 */
     fun ensureLoaded() {
         if (loaded) return
@@ -77,6 +81,8 @@ class WeeklyViewModel : ViewModel() {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // 允许用户点错误提示重试：不把 loaded 固定成 true
+                loaded = false
                 _periodsError.value = e.message ?: "每周必看加载失败"
             } finally {
                 _loading.value = false
@@ -87,6 +93,7 @@ class WeeklyViewModel : ViewModel() {
     /** 选择某期：拉取该期内容流 */
     fun select(period: WeekPeriod?) {
         if (period == null) return
+        val gen = ++selectGeneration
         _selected.value = period
         _comics.value = emptyList()
         _loading.value = true
@@ -94,13 +101,16 @@ class WeeklyViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = JmRepository.weeklyContent(period.id, 1)
+                if (gen != selectGeneration) return@launch
                 _comics.value = result.items
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _comicsError.value = e.message ?: "该期内容加载失败"
+                if (gen == selectGeneration) {
+                    _comicsError.value = e.message ?: "该期内容加载失败"
+                }
             } finally {
-                _loading.value = false
+                if (gen == selectGeneration) _loading.value = false
             }
         }
     }
@@ -144,10 +154,12 @@ fun WeeklyScreen(
         ) {
             periodsError?.let { err ->
                 Text(
-                    text = err,
+                    text = "$err（点击重试）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { viewModel.ensureLoaded() },
                 )
             }
             LazyRow(

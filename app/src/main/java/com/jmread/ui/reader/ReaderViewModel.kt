@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.Coil
 import coil.request.ImageRequest
+import com.jmread.core.log.LogStore
 import com.jmread.core.model.ComicChapter
 import com.jmread.core.model.ComicPage
 import com.jmread.core.JmRepository
@@ -72,6 +73,9 @@ class ReaderViewModel : ViewModel() {
         this.comicId = ref
         this.currentOrder = order
         _currentOrderFlow.value = order
+        // 切章/重试时先清空上一章页面：否则加载期间会顶着新章标题展示旧章内容，
+        // 失败时也容易把旧页码写成新章进度。
+        _pages.value = emptyList()
         loadJob = viewModelScope.launch {
             _loading.value = true
             // 复位上一章未消费的恢复页：加载期间重组只会读到 -1，
@@ -87,21 +91,66 @@ class ReaderViewModel : ViewModel() {
                         // 否则翻页器/滚动列表保留上一章页码，防抖还会把旧页码写成新章进度
                         if (saved != null && saved.order == order) saved.pageIndex else 0
                     }.getOrDefault(0)
-                    // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
-                    val local = com.jmread.core.download.DownloadManager.chapterDir(comicId, order)
-                        .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
-                        ?.sortedBy { it.name.replace(Regex("\\D"), "").toIntOrNull() ?: 0 }
-                    if (!local.isNullOrEmpty()) {
-                        _pages.value = local.mapIndexed { i, f ->
-                            com.jmread.core.model.ComicPage(i, f.toURI().toString())
+
+                    // 本地页：排除写入中的 .part；只有「完整下载」才优先纯本地。
+                    // 不完整时仍尝试网络；网络失败再退回本地已下载部分（能看多少看多少）。
+                    // 关键：后续章节列表请求失败绝不能清空这里已读出的页面（离线阅读 P0）。
+                    val localFiles = com.jmread.core.download.DownloadManager
+                        .chapterDir(comicId, order)
+                        .listFiles()
+                        ?.filter {
+                            it.name.startsWith("page_") &&
+                                !it.name.endsWith(".part") &&
+                                it.length() > 0
                         }
+                        ?.sortedBy { it.name.replace(Regex("\\D"), "").toIntOrNull() ?: 0 }
+                        .orEmpty()
+                    val localPages = localFiles.mapIndexed { i, f ->
+                        com.jmread.core.model.ComicPage(i, f.toURI().toString())
+                    }
+                    val localComplete = localPages.isNotEmpty() &&
+                        com.jmread.core.download.DownloadManager.isDownloaded(comicId, order)
+                    if (localComplete) {
+                        _pages.value = localPages
                     } else {
-                        _pages.value = JmRepository.chapterPages(comicId, order)
+                        val remotePages = runCatchingCancellable {
+                            JmRepository.chapterPages(comicId, order)
+                        }
+                        _pages.value = remotePages.getOrNull()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: localPages
+                        if (remotePages.isFailure && localPages.isNotEmpty()) {
+                            LogStore.log(
+                                "reader", "W",
+                                "章节在线加载失败，改用本地不完整页面 comic=$comicId order=$order " +
+                                    "(${remotePages.exceptionOrNull()?.message?.take(60)})",
+                            )
+                        }
                     }
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
                     _pendingRestorePage.value = restore
-                    _chapters.value = JmRepository.chapters(comicId)
+
+                    // 章节列表独立失败：离线/详情接口故障不应连累已经拿到的页面。
+                    val remoteChapters = runCatchingCancellable { JmRepository.chapters(comicId) }
+                        .getOrNull()
+                        .orEmpty()
+                    _chapters.value = remoteChapters.ifEmpty {
+                        // 离线兜底：用已下载任务生成可切换的章节表
+                        com.jmread.core.download.DownloadManager.comicTasks(comicId)
+                            .filter {
+                                com.jmread.core.download.DownloadManager
+                                    .isDownloaded(comicId, it.task.order)
+                            }
+                            .map { t ->
+                                ComicChapter(
+                                    id = "$comicId#${t.task.order}",
+                                    title = t.task.epTitle.ifBlank { "第 ${t.task.order} 话" },
+                                    order = t.task.order,
+                                )
+                            }
+                    }
+
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
                         runCatchingCancellable {
@@ -116,6 +165,13 @@ class ReaderViewModel : ViewModel() {
                                 _comicAuthor.value = detail.author
                             }
                         }
+                        // 离线时详情不可用：用下载任务里的标题/封面兜底，避免历史记录只剩「第 N 话」
+                        if (_comicTitle.value.isBlank() || _coverUrl.value.isBlank()) {
+                            val t = com.jmread.core.download.DownloadManager.comicTasks(comicId)
+                                .firstOrNull()?.task
+                            if (_comicTitle.value.isBlank()) _comicTitle.value = t?.comicTitle.orEmpty()
+                            if (_coverUrl.value.isBlank()) _coverUrl.value = t?.coverUrl.orEmpty()
+                        }
                         // 详情就绪后补写最近阅读：修正此前按兜底标题("第N话")写入的记录
                         if (lastRecordedPage >= 0) {
                             recordRecentRead(lastRecordedPage)
@@ -127,9 +183,15 @@ class ReaderViewModel : ViewModel() {
                 // 切章/退出时取消旧加载：必须放行，否则旧协程会继续写 _pages/_loading
                 throw e
             } catch (e: Exception) {
-                // 加载失败必须清空页面：切章失败若残留上一章内容，会顶着新章标题展示，
-                // 且当前页码会被防抖保存成新章的阅读进度（进度污染）
-                _pages.value = emptyList()
+                // 页面已在本章内尽力获取；只有彻底没拿到任何页时才落日志。
+                // 绝不能像旧实现那样无条件清空：离线打开已下载章节时，
+                // 章节列表请求失败会把刚读出的本地页一起抹掉。
+                if (_pages.value.isEmpty()) {
+                    LogStore.log(
+                        "reader", "W",
+                        "章节加载失败 comic=$comicId order=$order: ${e.message?.take(80)}",
+                    )
+                }
             } finally {
                 if (isActive) _loading.value = false
             }
@@ -268,12 +330,14 @@ class ReaderViewModel : ViewModel() {
             val url = pages[i].imageUrl
             // 本地文件（已下载）无需预取
             if (url.startsWith("file:")) continue
+            // 与展示请求共用同一缓存键（章节图是 #de，封面/手动覆盖用原 URL）
+            val cacheKey = com.jmread.core.scramble.jmImageCacheKey(url)
             loader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
                     .size(coil.size.Size(width = Int.MAX_VALUE, height = cap))
-                    .memoryCacheKey(url)
-                    .diskCacheKey(url)
+                    .memoryCacheKey(cacheKey)
+                    .diskCacheKey(cacheKey)
                     .build()
             )
         }
