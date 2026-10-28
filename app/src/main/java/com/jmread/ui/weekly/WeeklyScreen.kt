@@ -33,7 +33,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.JmRepository
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.WeekPeriod
+import com.jmread.data.GridSettings
 import com.jmread.ui.browse.ComicGridView
+import com.jmread.ui.common.ComicGridSkeleton
+import com.jmread.ui.common.EmptyState
+import com.jmread.ui.common.ErrorRetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -131,6 +135,7 @@ fun WeeklyScreen(
     val periodsError by viewModel.periodsError.collectAsState()
     val comicsError by viewModel.comicsError.collectAsState()
     val gridState = rememberLazyGridState()
+    val columns by GridSettings.columnsFlow.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.ensureLoaded() }
 
@@ -175,34 +180,25 @@ fun WeeklyScreen(
                 }
             }
             when {
-                loading && comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                comicsError != null && comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = comicsError ?: "",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                        )
-                    }
-                }
-                comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "选择上方期数查看内容",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                loading && comics.isEmpty() -> ComicGridSkeleton(
+                    columns = columns,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                comicsError != null && comics.isEmpty() -> ErrorRetry(
+                    message = comicsError ?: "加载失败",
+                    onRetry = {
+                        selected?.let { viewModel.select(it) } ?: viewModel.ensureLoaded()
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                comics.isEmpty() -> EmptyState(
+                    message = "选择上方期数查看内容",
+                    modifier = Modifier.fillMaxSize(),
+                )
                 else -> {
                     ComicGridView(
                         comics = comics,
-                        loading = loading,
+                        loading = false,
                         endReached = true,
                         listState = gridState,
                         onLoadMore = {},

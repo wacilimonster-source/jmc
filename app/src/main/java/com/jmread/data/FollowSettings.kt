@@ -27,6 +27,7 @@ data class FollowItem(
 object FollowSettings {
     private const val PREFS_NAME = "follow_settings"
     private const val KEY_ITEMS = "follow_items"
+    private const val KEY_FEED_SEEN = "feed_seen_max_updated_at"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -34,6 +35,19 @@ object FollowSettings {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // ── 关注流「已看到」基线 ──────────────────────────────────────────────
+    // 记录离开关注 Tab 时列表中最新的 updatedAt（ISO 字符串，与排序同一字典序）。
+    // 空 = 从未看过：首装不显示任何「新内容」圆点，避免把整屏都标成新。
+
+    fun feedSeenMaxUpdatedAt(): String =
+        prefs?.getString(KEY_FEED_SEEN, "") ?: ""
+
+    /** 列表为空时不记录，避免把「无内容」误当成已看到 */
+    fun markFeedSeen(maxUpdatedAt: String) {
+        if (maxUpdatedAt.isBlank()) return
+        prefs?.edit()?.putString(KEY_FEED_SEEN, maxUpdatedAt)?.apply()
     }
 
     /** 关注项（按添加时间倒序；无时间戳的旧条目沉到最后，保证顺序稳定） */

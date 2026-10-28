@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -58,6 +59,10 @@ fun ComicGridView(
     modifier: Modifier = Modifier,
     /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
     showTailLoading: Boolean = true,
+    /** 「有更新」基线：条目 updatedAt 大于该值时封面左上角显示圆点（关注流用） */
+    newUntil: String = "",
+    /** 终态页脚文案 */
+    endHintText: String = "到底了",
 ) {
     val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
     val columns by com.jmread.data.GridSettings.columnsFlow.collectAsState()
@@ -71,10 +76,14 @@ fun ComicGridView(
     ) {
         items(comics, key = { it.ref }) { comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.jmread.data.ReaderStatus.of(comic.ref) }
+            val isNew = remember(comic.ref, newUntil) {
+                newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
+            }
             ComicCard(
                 comic = comic,
                 readStatus = readStatus,
                 largeTitle = columns == 2,
+                isNew = isNew,
                 onClick = { onComicClick(comic.ref) },
                 onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
             )
@@ -91,7 +100,7 @@ fun ComicGridView(
         if (!loading && endReached && comics.isNotEmpty()) {
             item(key = "end-reached", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
-                    text = "到底了",
+                    text = endHintText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -125,6 +134,8 @@ private fun ComicCard(
     readStatus: com.jmread.data.ReadStatus?,
     /** 2 列大卡片时标题用更大字号 */
     largeTitle: Boolean,
+    /** 关注流新更新：封面左上角小圆点 */
+    isNew: Boolean = false,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -185,6 +196,16 @@ private fun ComicCard(
                     container = MaterialTheme.colorScheme.tertiary,
                     content = MaterialTheme.colorScheme.onTertiary,
                     modifier = Modifier.align(Alignment.TopStart),
+                )
+            }
+            // 关注流新内容圆点：与「有更新」角标错开，避免同一位置叠字
+            if (isNew && comic.latestEpText.isBlank()) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .size(8.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
                 )
             }
         }

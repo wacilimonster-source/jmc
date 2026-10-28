@@ -43,7 +43,7 @@ object AppSessionState {
 }
 
 /**
- * 崩溃/异常退出取证与落盘（移植自 PiKA v1.9.x，去掉图片失败通道）。
+ * 崩溃/异常退出取证与落盘（移植自 PiKA v1.9.x，含图片失败落盘通道）。
  *
  * 背景：LogStore 是纯内存环形缓冲，进程死亡即清零；且「卡住然后闪退」未必是 Java 异常
  * ——ANR（主线程阻塞被系统杀）与系统内存不足杀（lmkd）都**不经过**
@@ -68,6 +68,7 @@ object CrashReporter {
     private const val CRASH_FILE = "last_crash.txt"
     private const val DIAG_FILE = "startup_diagnostic.txt"
     private const val FREEZE_FILE = "freeze.log"
+    private const val IMG_FAIL_FILE = "image_failures.log"
     private const val ALIVE_FILE = "last_alive.txt"
     private const val EXIT_SEEN_FILE = "last_exit_seen.txt"
 
@@ -77,10 +78,15 @@ object CrashReporter {
     @Volatile
     private var installed = false
 
+    /** 供落盘型图片失败记录复用（install 时持有 Application 上下文） */
+    @Volatile
+    private var appContext: Context? = null
+
     /** 在 Application.onCreate 最先调用。先汇总上次会话的诊断证据，再装崩溃钩子。 */
     fun install(context: Context) {
         if (installed) return
         installed = true
+        appContext = context.applicationContext
         prepareStartupDiagnostics(context)
         if (pendingReport(context) != null) {
             LogStore.log(TAG, "E", "检测到上次会话异常证据（崩溃/退出原因/冻结记录），设置 → 调试日志 顶部可查看或复制")
@@ -121,6 +127,7 @@ object CrashReporter {
             file(context, CRASH_FILE).delete()
             file(context, DIAG_FILE).delete()
             file(context, FREEZE_FILE).delete()
+            file(context, IMG_FAIL_FILE).delete()
         }
     }
 
@@ -177,6 +184,14 @@ object CrashReporter {
                 sections += "--- 上次会话主线程冻结记录（≥4s 阻塞，看门狗落盘） ---\n$freeze"
             }
             writeText(context, FREEZE_FILE, "") // 已消费，防跨会话累积
+
+            // 4) 上次会话的图片最终失败记录（自动重试耗尽/受限）。
+            // LogStore 是内存态，进程死亡即丢；落盘后才能进入下次启动诊断。
+            val imgFail = readText(context, IMG_FAIL_FILE)
+            if (!imgFail.isNullOrBlank()) {
+                sections += "--- 上次会话图片加载失败记录（自动重试耗尽/受限） ---\n$imgFail"
+            }
+            writeText(context, IMG_FAIL_FILE, "")
 
             if (sections.isNotEmpty()) {
                 // 带生成时间戳：报告在用户点「忽略」前会一直显示，
@@ -252,9 +267,22 @@ object CrashReporter {
 
     // ── 看门狗与心跳的写入接口 ───────────────────────────────────────────
 
-    /** [MainThreadWatchdog] 专用：立即落盘一次冻结记录（LogStore 会随 ANR 死亡，文件不会） */
-    fun appendFreezeRecord(context: Context, text: String) {
+    /** 图片自动重试耗尽/受限记录落盘：
+     *  LogStore 是内存态、随进程死亡清零，复现后往往来不及看日志；落盘后随下次启动
+     *  的诊断报告一并呈现，可按失败原因继续调参。 */
+    @Synchronized
+    fun appendImageFailure(text: String) {
+        val ctx = appContext ?: return
         runCatching {
+            val f = file(ctx, IMG_FAIL_FILE)
+            // 防止长期运行无限膨胀：超过 64KB 丢弃旧记录
+            if (f.length() > 64 * 1024) f.delete()
+            f.appendText("${fmtFull(System.currentTimeMillis())} $text\n")
+        }
+    }
+
+    /** [MainThreadWatchdog] 专用：立即落盘一次冻结记录（LogStore 会随 ANR 死亡，文件不会） */
+    fun appendFreezeRecord(context: Context, text: String) {        runCatching {
             val f = file(context, FREEZE_FILE)
             // 防膨胀：超过 96KB 丢弃旧记录（冻结记录首条最有价值，直接清空重来）
             if (f.length() > 96 * 1024) f.delete()

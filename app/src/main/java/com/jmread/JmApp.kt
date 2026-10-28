@@ -71,6 +71,11 @@ class JmApp : Application() {
                 .components {
                     add(JmUrlKeyer())
                     add(JmImageFetcher.Factory())
+                    // 管线拦截器顺序：错误取证在最外，记录最终结果；随后是管线级
+                    // 重试（覆盖响应体中断/解码失败）；最内层合流，减少同图重复下载。
+                    add(com.jmread.core.scramble.ImageErrorLoggingInterceptor())
+                    add(com.jmread.core.scramble.CoilRetryInterceptor())
+                    add(com.jmread.core.scramble.CoalescingInterceptor())
                 }
                 .build(),
         )

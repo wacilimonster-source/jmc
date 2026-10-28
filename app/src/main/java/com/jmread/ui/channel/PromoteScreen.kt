@@ -113,7 +113,7 @@ fun PromoteScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("加载中...", style = MaterialTheme.typography.bodyMedium)
+                    Text("加载中…", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             blocks.isEmpty() -> {

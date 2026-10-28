@@ -19,6 +19,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,8 +38,13 @@ import com.jmread.core.model.sortedByComicSort
 import com.jmread.data.AuthorFavourites
 import com.jmread.data.FollowFeedCache
 import com.jmread.data.FollowSettings
+import com.jmread.data.GridSettings
 import com.jmread.data.UpdatedAtCache
 import com.jmread.ui.browse.ComicGridView
+import com.jmread.ui.common.ComicGridSkeleton
+import com.jmread.ui.common.EmptyState
+import com.jmread.ui.common.ErrorRetry
+import com.jmread.ui.common.InlineErrorBanner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,14 +78,22 @@ private data class FollowFetchResult(
     val failedCount: Int,
 )
 
-/** 关注流 VM：所有关注来源（收藏作者/关键词/分类标签）的最新作品聚合 */
+/** 关注流按来源分页推进；缓存只保留前 120 条控制体积，内存列表不再硬截断 */
 class FollowFeedViewModel : ViewModel() {
 
     private val _feed = MutableStateFlow<List<ComicSummary>>(emptyList())
     val feed: StateFlow<List<ComicSummary>> = _feed.asStateFlow()
 
-    private val _loading = MutableStateFlow(false)
+    /** 首屏默认 true：避免首次刷新开始前闪一帧「暂无关注内容」 */
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    /** 触底加载中（与下拉刷新分开：只驱动网格尾部转圈） */
+    private val _loadingMore = MutableStateFlow(false)
+    val loadingMore: StateFlow<Boolean> = _loadingMore.asStateFlow()
+
+    private val _endReached = MutableStateFlow(false)
+    val endReached: StateFlow<Boolean> = _endReached.asStateFlow()
 
     private val _emptyHint = MutableStateFlow<String?>(null)
     val emptyHint: StateFlow<String?> = _emptyHint.asStateFlow()
@@ -91,14 +105,28 @@ class FollowFeedViewModel : ViewModel() {
     private val _refreshTick = MutableStateFlow(0)
     val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
 
+    /** 「已看到」基线：离开关注 Tab 时推进，列表用 updatedAt 与此比较显示新内容圆点 */
+    private val _seenMarker = MutableStateFlow(FollowSettings.feedSeenMaxUpdatedAt())
+    val seenMarker: StateFlow<String> = _seenMarker.asStateFlow()
+
+    fun markFeedSeen() {
+        val max = _feed.value.maxOfOrNull { it.updatedAt } ?: ""
+        if (max.isNotBlank()) {
+            FollowSettings.markFeedSeen(max)
+            _seenMarker.value = max
+        }
+    }
+
     private var lastAutoRefreshAt = 0L
     private var everRefreshed = false
 
-    /** 各来源已加载到的页数 / 是否到末页 */
+    /** 各来源已加载到的页数 / 是否到末页 / 连续失败次数 */
     private var targetPages = mutableMapOf<String, Int>()
     private var targetEnded = mutableMapOf<String, Boolean>()
+    private var targetFailures = mutableMapOf<String, Int>()
     private var targets: List<FollowTarget> = emptyList()
     private var loadingJob: kotlinx.coroutines.Job? = null
+    private var loadingMoreJob: kotlinx.coroutines.Job? = null
 
     init {
         // 冷启动：先展示上次成功刷新的缓存，后台静默刷新替换
@@ -139,12 +167,17 @@ class FollowFeedViewModel : ViewModel() {
         if (targets.isEmpty()) rebuildTargets()
     }
 
-    /** 下拉刷新：所有来源重新从第 1 页拉取，取前 120 条 */
+    /** 下拉刷新：所有来源重新从第 1 页拉取；之后触底按来源游标继续深入 */
     fun refresh() {
         lastAutoRefreshAt = System.currentTimeMillis()
         rebuildTargets()
         if (targets.isEmpty()) {
+            loadingJob?.cancel()
+            loadingMoreJob?.cancel()
+            _loading.value = false
+            _loadingMore.value = false
             _feed.value = emptyList()
+            _endReached.value = true
             _emptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加作者或关键词关注"
             _error.value = null
             FollowFeedCache.clear()
@@ -153,19 +186,29 @@ class FollowFeedViewModel : ViewModel() {
         _emptyHint.value = null
         _loading.value = true
         _error.value = null
+        // 刷新接管：取消在途触底加载，避免旧页号写进新游标
+        loadingMoreJob?.cancel()
+        _loadingMore.value = false
         loadingJob?.cancel()
         loadingJob = viewModelScope.launch {
             try {
                 targetPages.clear()
                 targetEnded.clear()
-                val result = fetchTargetPage(1)
+                targetFailures.clear()
+                val result = fetchNextTargetPage()
                 val failed = result.failedCount
                 if (result.items.isNotEmpty() || failed == 0) {
+                    // 部分来源失败时只增不减，避免一次抖动让列表整体缩水
                     mergeIntoFeed(result.items, append = failed > 0)
                     if (failed == 0) _refreshTick.value++
-                    if (_feed.value.size > 120) _feed.value = _feed.value.take(120)
+                    // 缓存只存前 120 条；内存列表完整保留，加载更多继续追加
                     runCatching { FollowFeedCache.save(_feed.value) }
                 }
+                _endReached.value = targets.all { targetEnded[it.key] == true }
+                android.util.Log.i(
+                    "FollowFeed",
+                    "refresh feed=${_feed.value.size} added=${result.items.size} failed=$failed end=${_endReached.value}",
+                )
                 _error.value = when {
                     failed > 0 && result.items.isEmpty() -> "全部关注来源拉取失败，已保留上次内容"
                     failed > 0 -> "${failed} 个关注来源暂时拉取失败，内容可能不完整"
@@ -180,7 +223,41 @@ class FollowFeedViewModel : ViewModel() {
         }
     }
 
-    private suspend fun fetchTargetPage(page: Int): FollowFetchResult {
+    /** 触底加载更多：每个未到末页的来源推进一页，合并去重后追加 */
+    fun loadMore() {
+        if (_loading.value || _loadingMore.value) return
+        if (_endReached.value) return
+        if (targets.isEmpty()) return
+        _loadingMore.value = true
+        loadingMoreJob = viewModelScope.launch {
+            try {
+                val result = fetchNextTargetPage()
+                if (result.items.isNotEmpty()) mergeIntoFeed(result.items, append = true)
+                _endReached.value = targets.all { targetEnded[it.key] == true }
+                android.util.Log.i(
+                    "FollowFeed",
+                    "loadMore feed=${_feed.value.size} added=${result.items.size} failed=${result.failedCount} end=${_endReached.value}",
+                )
+                _error.value = when {
+                    result.failedCount > 0 ->
+                        "${result.failedCount} 个关注来源加载失败，滚动到底将自动重试"
+                    else -> null
+                }
+                runCatching { FollowFeedCache.save(_feed.value) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _error.value = "加载更多失败（${e.message ?: "网络错误"}）"
+            } finally {
+                if (isActive) _loadingMore.value = false
+            }
+        }
+    }
+
+    /**
+     * 拉取所有未到末页来源的下一页。每个来源独立游标，来源之间保持间隔，
+     * 单次失败不立刻判死（连续 3 次才停止），避免一次网络抖动让整个关注源消失。
+     */
+    private suspend fun fetchNextTargetPage(): FollowFetchResult {
         val result = mutableListOf<ComicSummary>()
         var failed = 0
         var requested = false
@@ -190,21 +267,27 @@ class FollowFeedViewModel : ViewModel() {
         for (target in ordered.filter { targetEnded[it.key] != true }) {
             if (requested) kotlinx.coroutines.delay(TARGET_REQUEST_INTERVAL_MS)
             requested = true
+            val page = (targetPages[target.key] ?: 0) + 1
             result += try {
-                when (target.type) {
+                val items = when (target.type) {
                     FollowTargetType.AUTHOR ->
-                        // 作者维度搜索（main_tag=2），不是综合关键词搜索
                         searchWithRetry(target.name, page, mainTag = 2)
                             .also { r ->
                                 targetPages[target.key] = page
                                 if (page >= r.pages) targetEnded[target.key] = true
                             }.items
                     FollowTargetType.KEYWORD ->
-                        fetchKeywordPage(target, page)
+                        fetchKeywordPage(target, page).also {
+                            targetPages[target.key] = page
+                        }
                 }
+                targetFailures.remove(target.key)
+                items
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                targetEnded[target.key] = true
+                val failures = (targetFailures[target.key] ?: 0) + 1
+                targetFailures[target.key] = failures
+                if (failures >= 3) targetEnded[target.key] = true
                 failed++
                 emptyList()
             }
@@ -320,9 +403,13 @@ fun FollowFeedScreen(
 ) {
     val feed by viewModel.feed.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val loadingMore by viewModel.loadingMore.collectAsState()
+    val endReached by viewModel.endReached.collectAsState()
     val emptyHint by viewModel.emptyHint.collectAsState()
     val error by viewModel.error.collectAsState()
     val refreshTick by viewModel.refreshTick.collectAsState()
+    val seenMarker by viewModel.seenMarker.collectAsState()
+    val columns by GridSettings.columnsFlow.collectAsState()
     val gridState = rememberLazyGridState()
 
     LaunchedEffect(Unit) {
@@ -331,6 +418,12 @@ fun FollowFeedScreen(
     }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         viewModel.refreshOnResume()
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+        viewModel.markFeedSeen()
+    }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.markFeedSeen() }
     }
 
     val lastHandledTick = remember { mutableIntStateOf(refreshTick) }
@@ -361,43 +454,50 @@ fun FollowFeedScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (feed.isEmpty() && emptyHint != null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = emptyHint ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp),
-                    )
-                }
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    if (error != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                text = error ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.weight(1f),
+            when {
+                feed.isEmpty() && loading -> ComicGridSkeleton(
+                    columns = columns,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                feed.isEmpty() && emptyHint != null -> EmptyState(
+                    message = emptyHint ?: "",
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                feed.isEmpty() && error != null -> ErrorRetry(
+                    message = error ?: "加载失败",
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                feed.isEmpty() -> EmptyState(
+                    message = "关注的内容暂无更新",
+                    modifier = Modifier.fillMaxSize(),
+                    actionText = "刷新",
+                    onAction = viewModel::refresh,
+                )
+
+                else -> {
+                    Column(Modifier.fillMaxSize()) {
+                        if (error != null) {
+                            InlineErrorBanner(
+                                message = error ?: "",
+                                onRetry = viewModel::refresh,
                             )
-                            TextButton(onClick = viewModel::refresh) { Text("重试") }
                         }
+                        ComicGridView(
+                            comics = feed,
+                            loading = loadingMore,
+                            endReached = endReached,
+                            listState = gridState,
+                            onLoadMore = viewModel::loadMore,
+                            onComicClick = onComicClick,
+                            modifier = Modifier.weight(1f),
+                            newUntil = seenMarker,
+                            endHintText = "已加载全部关注内容",
+                        )
                     }
-                    ComicGridView(
-                        comics = feed,
-                        loading = loading,
-                        endReached = true,
-                        listState = gridState,
-                        onLoadMore = {},
-                        onComicClick = onComicClick,
-                        modifier = Modifier.weight(1f),
-                        showTailLoading = false,
-                    )
                 }
             }
         }

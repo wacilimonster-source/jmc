@@ -109,10 +109,10 @@ fun MineScreen(
         }
         Spacer(Modifier.height(8.dp))
         if (loggedIn && JmCapabilities.hasCloudFavouriteRead) {
-            MenuRow("☁ 云端收藏", onClick = onOpenCloudFavourites)
+            MenuRow("云端收藏", onClick = onOpenCloudFavourites)
         }
         if (loggedIn && JmCapabilities.hasCloudHistory) {
-            MenuRow("☁ 云端历史", onClick = onOpenCloudHistory)
+            MenuRow("云端历史", onClick = onOpenCloudHistory)
         }
         MenuRow("本地书架", onClick = onOpenBookmarks)
         MenuRow("收藏的作者", onClick = onOpenAuthorFavourites)

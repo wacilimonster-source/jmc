@@ -1,6 +1,10 @@
 ﻿package com.jmread.ui
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -121,6 +125,30 @@ fun MainScreen() {
             navController = navController,
             startDestination = "home",
             modifier = Modifier.padding(innerPadding),
+            enterTransition = {
+                slideIntoContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(200),
+                ) + fadeIn(tween(200))
+            },
+            exitTransition = {
+                slideOutOfContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(200),
+                ) + fadeOut(tween(200))
+            },
+            popEnterTransition = {
+                slideIntoContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(200),
+                ) + fadeIn(tween(200))
+            },
+            popExitTransition = {
+                slideOutOfContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(200),
+                ) + fadeOut(tween(200))
+            },
         ) {
             composable("home") {
                 HomeScreen(
@@ -132,7 +160,7 @@ fun MainScreen() {
                         navController.navigate("channel/${Uri.encode(id)}")
                     },
                     onOpenWeekly = { navController.navigate("weekly") },
-                    onOpenFollow = { navController.navigate("follow-feed") },
+                    onOpenFollowManage = { navController.navigate("follow-manage") },
                 )
             }
             composable("promote") {

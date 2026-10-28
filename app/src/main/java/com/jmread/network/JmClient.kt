@@ -63,8 +63,28 @@ object JmClient {
             synchronized(store) { store[url.host] = cookies }
         }
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> =
-            synchronized(store) { store[url.host].orEmpty() }
+        /**
+         * 把当前 AVS 会话合并进 CookieJar。
+         *
+         * 原因：OkHttp 的 BridgeInterceptor 会用 CookieJar 的返回值覆盖手动设置的
+         * Cookie 头。登录与实际请求可能落在不同镜像 host，而各 host 又各自缓存了
+         * ipcountry/theme 等非 AVS Cookie；如果只返回这些 Cookie，AVS 会被挤掉，
+         * 服务端便返回「401 請先登入會員」。
+         */
+        override fun loadForRequest(url: HttpUrl): List<Cookie> {
+            val stored = synchronized(store) {
+                store[url.host].orEmpty().filterNot { it.name == "AVS" }
+            }
+            val token = SourcePrefs.current().jmToken
+            if (token.isNullOrBlank()) return stored
+            val avs = Cookie.Builder()
+                .name("AVS")
+                .value(token)
+                .hostOnlyDomain(url.host)
+                .path("/")
+                .build()
+            return stored + avs
+        }
     }
 
     /** 会话失效钩子（401 时静默重登并重试一次） */
@@ -123,6 +143,12 @@ object JmClient {
             try {
                 client.newCall(builder.build()).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
+                    if (resp.code == 401) {
+                        android.util.Log.w(
+                            "JmClient",
+                            "401 host=$host relative=$relative hasSession=${!session.isNullOrEmpty()}",
+                        )
+                    }
                     if (resp.code == 401 && !retriedAuth) {
                         // 会话失效：静默重登后重试一次（结构性判断，不靠文案）
                         onUnauthorizedHook?.invoke()

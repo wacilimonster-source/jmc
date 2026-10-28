@@ -50,6 +50,9 @@ data class RecentRead(
 class ReaderPrefs private constructor(private val appContext: Context) {
 
     companion object {
+        /** 历史记录上限：超过后淘汰最旧（阅读进度不随历史淘汰） */
+        private const val MAX_RECENT_READS = 100
+
         private lateinit var instance: ReaderPrefs
 
         fun init(context: Context) {
@@ -259,7 +262,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         return list
     }
 
-    /** 记录/刷新最近阅读（最近 12 条，按时间倒序）。[ref] 为作品标识 */
+    /** 记录/刷新最近阅读（最近 [MAX_RECENT_READS] 条，按时间倒序）。[ref] 为作品标识 */
     suspend fun recordRecentRead(
         ref: String,
         title: String,
@@ -270,14 +273,58 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     ) {
         appContext.readerDataStore.edit { prefs ->
             val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
-            val current = prefs[key]?.let {
-                runCatching { json.decodeFromString<List<RecentRead>>(it) }.getOrDefault(emptyList())
-            } ?: emptyList()
+            val current = decodeRecent(prefs[key])
             val entry = RecentRead(ref, title, coverUrl, author, order, pageIndex, System.currentTimeMillis())
             val updated = (listOf(entry) + current.filterNot { it.ref == ref })
-                .take(12)
+                .take(MAX_RECENT_READS)
             prefs[key] = json.encodeToString(updated)
             cachedRecentReads = updated
         }
+    }
+
+    /** 删除单条阅读历史（按作品标识；不影响阅读进度/已读完状态） */
+    suspend fun deleteRecentRead(ref: String) {
+        appContext.readerDataStore.edit { prefs ->
+            val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
+            val updated = decodeRecent(prefs[key]).filterNot { it.ref == ref }
+            prefs[key] = json.encodeToString(updated)
+            cachedRecentReads = updated
+        }
+    }
+
+    /** 清空阅读历史（不影响阅读进度/已读完状态） */
+    suspend fun clearRecentReads() {
+        appContext.readerDataStore.edit { prefs ->
+            val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
+            prefs[key] = json.encodeToString(emptyList<RecentRead>())
+            cachedRecentReads = emptyList()
+        }
+    }
+
+    /**
+     * 撤销删除/清空：把快照合并回当前列表。
+     *
+     * 以当前列表优先（同作品取当前记录），避免撤销期间刚产生的阅读记录被旧快照覆盖；
+     * 合并后按时间倒序并保持上限。
+     */
+    suspend fun restoreRecentReads(entries: List<RecentRead>) {
+        if (entries.isEmpty()) return
+        appContext.readerDataStore.edit { prefs ->
+            val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
+            val current = decodeRecent(prefs[key])
+            val merged = (entries + current)
+                .associateBy { it.ref }
+                .values
+                .sortedByDescending { it.ts }
+                .take(MAX_RECENT_READS)
+            prefs[key] = json.encodeToString(merged)
+            cachedRecentReads = merged
+        }
+    }
+
+    private fun decodeRecent(raw: String?): List<RecentRead> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching { json.decodeFromString<List<RecentRead>>(raw) }
+            .getOrDefault(emptyList())
     }
 }

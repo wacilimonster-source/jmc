@@ -39,8 +39,12 @@ import com.jmread.core.JmRepository
 import com.jmread.core.model.ComicSort
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.PageResult
+import com.jmread.data.GridSettings
 import com.jmread.ui.browse.ComicGridView
 import com.jmread.ui.browse.PaginationBar
+import com.jmread.ui.common.ComicGridSkeleton
+import com.jmread.ui.common.ErrorRetry
+import com.jmread.ui.common.InlineErrorBanner
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -153,6 +157,7 @@ fun ChannelScreen(
     val total by viewModel.total.collectAsState()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyGridState()
+    val columns by GridSettings.columnsFlow.collectAsState()
 
     LaunchedEffect(channelId) {
         // reloadKey 命中时 VM 会保留同频道的当前页与数据（从详情返回不再跳回第 1 页）。
@@ -207,49 +212,32 @@ fun ChannelScreen(
                 )
             }
             when {
-                error != null && comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = error ?: "",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp),
-                            )
-                            Text(
-                                text = "点击重试",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(top = 12.dp)
-                                    .clickable { viewModel.jumpToPage(1) },
-                            )
-                        }
-                    }
-                }
-                comics.isEmpty() && loading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
+                error != null && comics.isEmpty() -> ErrorRetry(
+                    message = error ?: "加载失败",
+                    onRetry = { viewModel.jumpToPage(1) },
+                    modifier = Modifier.weight(1f),
+                )
+                comics.isEmpty() && loading -> ComicGridSkeleton(
+                    columns = columns,
+                    modifier = Modifier.weight(1f),
+                )
                 else -> {
                     // 翻页失败但旧内容还在展示：必须显式提示，否则用户会以为已经翻到新页
                     if (error != null) {
-                        Text(
-                            text = "加载失败：$error",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        InlineErrorBanner(
+                            message = error ?: "",
+                            onRetry = { viewModel.jumpToPage(1) },
                         )
                     }
                     ComicGridView(
                         comics = comics,
-                        loading = loading,
+                        loading = false,
                         endReached = endReached,
                         listState = listState,
                         onLoadMore = {},
                         onComicClick = onComicClick,
                         modifier = Modifier.weight(1f),
+                        showTailLoading = false,
                     )
                     PaginationBar(
                         currentPage = currentPage,

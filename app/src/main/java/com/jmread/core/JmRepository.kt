@@ -58,6 +58,14 @@ object JmRepository {
     @Volatile private var favIdsCache: Pair<Long, Set<String>>? = null
     private const val FAV_IDS_TTL_MS = 5 * 60 * 1000L
 
+    /**
+     * 收藏状态版本：收藏/取消收藏成功、登录/退出后递增。
+     * 收藏列表页返回前台时据此判断是否需要刷新，避免无脑重拉。
+     */
+    @Volatile
+    var favouriteVersion: Long = 0L
+        private set
+
     private suspend fun albumCached(albumId: String): com.jmread.network.JmAlbumResponse {
         val now = System.currentTimeMillis()
         albumCache[albumId]?.let { (at, resp) ->
@@ -112,12 +120,14 @@ object JmRepository {
         SecureAccountStore.save(account.trim(), password)
         // 换账号后旧的收藏 id 集合不再成立
         favIdsCache = null
+        favouriteVersion++
     }
 
     suspend fun logout() {
         runCatching { JmClient.logout() }
         SourcePrefs.current().clearJmLogin()
         favIdsCache = null
+        favouriteVersion++
     }
 
     /** 启动/换域后的 /setting 刷新（失败静默：内置域名表兜底） */
@@ -453,6 +463,7 @@ object JmRepository {
         val result = JmClient.favoriteToggle(comicId)
         // 翻转成功即作废缓存，下次拉列表重建
         favIdsCache = null
+        favouriteVersion++
         return result?.isFavouriteAfter
             ?: throw JmException("收藏操作失败：${result?.msg ?: "服务端未返回结果"}")
     }

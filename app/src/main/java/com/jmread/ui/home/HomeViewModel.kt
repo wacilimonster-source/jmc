@@ -54,7 +54,8 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    private val _rankLoading = MutableStateFlow(false)
+    /** 首屏默认 true：在首次请求真正开始前先显示骨架，避免闪一帧「暂无数据」 */
+    private val _rankLoading = MutableStateFlow(true)
     val rankLoading: StateFlow<Boolean> = _rankLoading.asStateFlow()
 
     private val _rankError = MutableStateFlow<String?>(null)
@@ -75,6 +76,61 @@ class HomeViewModel : ViewModel() {
 
     private val _isScrollStateRestored = MutableStateFlow(false)
     val isScrollStateRestored: StateFlow<Boolean> = _isScrollStateRestored
+
+    // ── 随便看看：本源无 /random 端点，从月榜热度池本地随机 ──────────────
+
+    private val _randomComics = MutableStateFlow<List<ComicSummary>>(emptyList())
+    val randomComics: StateFlow<List<ComicSummary>> = _randomComics.asStateFlow()
+
+    private val _randomLoading = MutableStateFlow(false)
+    val randomLoading: StateFlow<Boolean> = _randomLoading.asStateFlow()
+
+    private val _randomError = MutableStateFlow<String?>(null)
+    val randomError: StateFlow<String?> = _randomError.asStateFlow()
+
+    private var randomLoaded = false
+    private var randomJob: kotlinx.coroutines.Job? = null
+
+    fun ensureRandomLoaded() {
+        if (randomLoaded) return
+        refreshRandom()
+    }
+
+    /** 从月榜前两页热池本地洗牌；失败保留旧列表并给出可见错误。 */
+    fun refreshRandom() {
+        randomLoaded = true
+        if (_randomLoading.value) return
+        _randomLoading.value = true
+        _randomError.value = null
+        randomJob?.cancel()
+        randomJob = viewModelScope.launch {
+            try {
+                val pool = buildList {
+                    for (page in 1..2) {
+                        val part = runCatching { JmRepository.rank("mv_m", page) }
+                            .getOrNull()?.items.orEmpty()
+                        addAll(part)
+                    }
+                }.distinctBy { it.id }
+                if (pool.isEmpty()) {
+                    // 月榜整体不可用时退到周榜，避免「随便看看」直接空白
+                    val week = runCatching { JmRepository.rank("mv_w", 1) }
+                        .getOrNull()?.items.orEmpty().distinctBy { it.id }
+                    if (week.isEmpty()) error("热门池加载失败，请稍后重试")
+                    _randomComics.value = week.shuffled().take(80)
+                } else {
+                    _randomComics.value = pool.shuffled().take(80)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (_randomComics.value.isEmpty()) _randomComics.value = emptyList()
+                _randomError.value = e.message?.takeIf { it.isNotBlank() } ?: "加载失败，请稍后重试"
+            } finally {
+                _randomLoading.value = false
+            }
+        }
+    }
 
     fun saveScrollState(index: Int) {
         _savedRankIndex = index

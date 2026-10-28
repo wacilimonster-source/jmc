@@ -476,7 +476,7 @@ fun ComicDetailScreen(
                                         .clickable { viewModel.load(ref) },
                                 )
                             } else {
-                                Text("加载中...", style = MaterialTheme.typography.bodyMedium)
+                                Text("加载中…", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -775,7 +775,7 @@ private fun ComicHeader(comic: ComicDetail, favourited: Boolean, onOpenAuthor: (
             if (favourited && com.jmread.core.JmRepository.isLoggedIn) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "☁ 已云端收藏",
+                    text = "已云端收藏",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )

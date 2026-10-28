@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -135,7 +137,8 @@ fun ReaderScreen(
     }
 
     val listState = rememberLazyListState()
-    val pagerState = rememberPagerState(pageCount = { pages.size })
+    // 末页之后多一页结束卡；页码/进度始终按真实页计算，结束卡不参与
+    val pagerState = rememberPagerState(pageCount = { if (pages.isEmpty()) 0 else pages.size + 1 })
 
     // ── 沉浸式全屏管理 ─────────────────────────────────────────────────────
     val view = LocalView.current
@@ -281,7 +284,8 @@ fun ReaderScreen(
     val currentPage = if (scrollMode) {
         scrollVisiblePage.value.coerceAtMost((pages.size - 1).coerceAtLeast(0))
     } else {
-        pagerState.currentPage
+        // 结束卡是虚拟页，页码与进度必须夹到最后一个真实页
+        pagerState.currentPage.coerceAtMost((pages.size - 1).coerceAtLeast(0))
     }
 
     // 保存进度：滚动页码变化做 1 秒防抖（连续快速滑动不再逐屏写盘、
@@ -293,7 +297,14 @@ fun ReaderScreen(
     // key 必须含 vmOrder：防抖链随切章重启——否则同页数的两章之间链幸存，
     // 旧章最后一次翻页会被 1 秒防抖带着新章号写盘（进度跨章泄漏）。
     LaunchedEffect(vmOrder, pages.size, scrollMode) {
-        snapshotFlow { if (scrollMode) scrollVisiblePage.value else pagerState.currentPage }
+        snapshotFlow {
+            if (scrollMode) {
+                scrollVisiblePage.value
+            } else {
+                // 结束卡不计入进度：停在结束卡时仍保存最后一个真实页
+                pagerState.currentPage.coerceAtMost((pages.size - 1).coerceAtLeast(0))
+            }
+        }
             .distinctUntilChanged()
             .debounce(1_000)
             .collect { page ->
@@ -336,6 +347,21 @@ fun ReaderScreen(
     fun switchTo(targetOrder: Int) {
         showPanel = false
         viewModel.switchChapter(context, targetOrder)
+    }
+
+    /** 页码滑杆：松手后才跳页并保存一次进度，拖动过程不写盘 */
+    fun seekToPage(page: Int) {
+        if (pages.isEmpty()) return
+        val target = page.coerceIn(0, pages.size - 1)
+        scope.launch {
+            if (scrollMode) {
+                listState.scrollToItem(rowForPage(target))
+            } else {
+                pagerState.scrollToPage(target)
+            }
+            viewModel.saveProgress(target)
+            viewModel.recordRecentRead(target)
+        }
     }
 
     // 点按：左 30% 上翻 / 右 30% 下翻 / 中间 40% 面板
@@ -429,6 +455,7 @@ fun ReaderScreen(
                     },
                     currentPage = currentPage + 1,
                     totalPages = pages.size,
+                    onPageSeek = ::seekToPage,
                     hasPrev = currentChapterIndex > 0,
                     hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
                     onPrevChapter = {
@@ -540,6 +567,21 @@ fun ReaderScreen(
                                 },
                             )
                         }
+                        item(key = "reader_end_card") {
+                            ReaderEndCard(
+                                chapterTitle = epTitle.ifBlank { "第 $vmOrder 话" },
+                                chaptersReady = sortedChapters.isNotEmpty(),
+                                isLastChapter = sortedChapters.isNotEmpty() &&
+                                    currentChapterIndex == sortedChapters.size - 1,
+                                hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
+                                nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
+                                onNextChapter = {
+                                    sortedChapters.getOrNull(currentChapterIndex + 1)
+                                        ?.let { switchTo(it.order) }
+                                },
+                                onBack = onBack,
+                            )
+                        }
                     }
                 }
 
@@ -557,12 +599,29 @@ fun ReaderScreen(
                                 translationY = panY
                             },
                     ) { page ->
-                        AsyncImage(
-                            model = displayUrl(page),
-                            contentDescription = "第 ${page + 1} 页",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        if (page < pages.size) {
+                            AsyncImage(
+                                model = displayUrl(page),
+                                contentDescription = "第 ${page + 1} 页",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            ReaderEndCard(
+                                chapterTitle = epTitle.ifBlank { "第 $vmOrder 话" },
+                                chaptersReady = sortedChapters.isNotEmpty(),
+                                isLastChapter = sortedChapters.isNotEmpty() &&
+                                    currentChapterIndex == sortedChapters.size - 1,
+                                hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
+                                nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
+                                onNextChapter = {
+                                    sortedChapters.getOrNull(currentChapterIndex + 1)
+                                        ?.let { switchTo(it.order) }
+                                },
+                                onBack = onBack,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }
@@ -589,6 +648,7 @@ private fun ReaderControlPanel(
     onBrightnessChange: (Float) -> Unit,
     currentPage: Int,
     totalPages: Int,
+    onPageSeek: (Int) -> Unit,
     hasPrev: Boolean,
     hasNext: Boolean,
     onPrevChapter: () -> Unit,
@@ -625,6 +685,44 @@ private fun ReaderControlPanel(
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                 )
+            }
+            if (totalPages > 1) {
+                var dragging by remember { mutableStateOf(false) }
+                var sliderPos by remember {
+                    mutableFloatStateOf((currentPage - 1).coerceIn(0, totalPages - 1).toFloat())
+                }
+                LaunchedEffect(currentPage, totalPages) {
+                    if (!dragging) {
+                        sliderPos = (currentPage - 1).coerceIn(0, totalPages - 1).toFloat()
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "页码",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(32.dp),
+                    )
+                    Slider(
+                        value = sliderPos,
+                        onValueChange = {
+                            dragging = true
+                            sliderPos = it
+                        },
+                        onValueChangeFinished = {
+                            dragging = false
+                            onPageSeek(sliderPos.toInt().coerceIn(0, totalPages - 1))
+                        },
+                        valueRange = 0f..(totalPages - 1).toFloat(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "${sliderPos.toInt() + 1}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(40.dp),
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onModeChange(false) }) {
@@ -683,6 +781,72 @@ private fun ReaderControlPanel(
                         tint = if (hasNext) Color.White else Color.Gray,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** 章节末尾卡片：本话/全本读完 + 下一话/返回详情；不参与页码与进度 */
+@Composable
+private fun ReaderEndCard(
+    chapterTitle: String,
+    chaptersReady: Boolean,
+    isLastChapter: Boolean,
+    hasNext: Boolean,
+    nextTitle: String?,
+    onNextChapter: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = if (chaptersReady && isLastChapter) "全本已读完" else "本话已读完",
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = chapterTitle,
+                color = Color.White.copy(alpha = 0.75f),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.size(20.dp))
+            when {
+                !chaptersReady -> Text(
+                    text = "章节列表未就绪，返回详情重试",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                hasNext -> {
+                    Text(
+                        text = nextTitle?.takeIf { it.isNotBlank() } ?: "下一话",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Button(onClick = onNextChapter) { Text("下一话") }
+                }
+
+                else -> Text(
+                    text = "已读到最后一话",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            TextButton(onClick = onBack) {
+                Text("返回详情", color = Color.White)
             }
         }
     }

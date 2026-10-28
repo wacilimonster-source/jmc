@@ -27,8 +27,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.JmRepository
 import com.jmread.core.model.ComicSummary
+import com.jmread.data.GridSettings
 import com.jmread.ui.browse.ComicGridView
 import com.jmread.ui.browse.PaginationBar
+import com.jmread.ui.common.ComicGridSkeleton
+import com.jmread.ui.common.EmptyState
+import com.jmread.ui.common.ErrorRetry
+import com.jmread.ui.common.InlineErrorBanner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -93,6 +98,7 @@ fun CloudHistoryScreen(
     val currentPage by viewModel.currentPage.collectAsState()
     val total by viewModel.total.collectAsState()
     val listState = rememberLazyGridState()
+    val columns by GridSettings.columnsFlow.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.load(1) }
 
@@ -123,42 +129,31 @@ fun CloudHistoryScreen(
                 )
             }
             when {
-                error != null && comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = error ?: "",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                        )
-                    }
-                }
-                comics.isEmpty() && loading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                comics.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "云端还没有浏览记录",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                error != null && comics.isEmpty() -> ErrorRetry(
+                    message = error ?: "加载失败",
+                    onRetry = { viewModel.load(currentPage) },
+                    modifier = Modifier.weight(1f),
+                )
+                comics.isEmpty() && loading -> ComicGridSkeleton(
+                    columns = columns,
+                    modifier = Modifier.weight(1f),
+                )
+                comics.isEmpty() -> EmptyState(
+                    message = "云端还没有浏览记录",
+                    modifier = Modifier.weight(1f),
+                    actionText = "刷新",
+                    onAction = { viewModel.load(1) },
+                )
                 else -> {
                     if (error != null) {
-                        Text(
-                            text = "加载失败：$error",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        InlineErrorBanner(
+                            message = error ?: "",
+                            onRetry = { viewModel.load(currentPage) },
                         )
                     }
                     ComicGridView(
                         comics = comics,
-                        loading = loading,
+                        loading = false,
                         endReached = currentPage >= totalPages,
                         listState = listState,
                         onLoadMore = {},
