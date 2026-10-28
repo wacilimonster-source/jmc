@@ -86,6 +86,24 @@ class ComicDetailViewModel : ViewModel() {
     private val _lastProgress = MutableStateFlow<com.jmread.data.ReaderPrefs.Progress?>(null)
     val lastProgress: StateFlow<com.jmread.data.ReaderPrefs.Progress?> = _lastProgress
 
+    /**
+     * 重新读取本地阅读进度。
+     *
+     * 详情页从阅读器返回时不会重建 ViewModel，`load()` 又因同一本漫画提前返回，
+     * 不刷新的话「继续阅读 / 上次阅读到」会一直停留在进详情页那一刻（旧值或空）。
+     */
+    fun refreshProgress() {
+        val ref = loadedRef
+        if (ref.isBlank()) return
+        val gen = loadGeneration
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val p = runCatching {
+                com.jmread.data.ReaderPrefs.current().lastProgressAsync(ref)
+            }.getOrNull()
+            if (gen == loadGeneration) _lastProgress.value = p
+        }
+    }
+
     fun load(ref: String) {
         if (loadedRef == ref && _comic.value != null) return
         val comicId = ref // 单源：路由参数即漫画 id
@@ -111,12 +129,7 @@ class ComicDetailViewModel : ViewModel() {
         _favouriteError.value = null
         favouriteInitJob?.cancel()
         // 读取本地历史进度（不阻塞主线程）
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (gen != loadGeneration) return@launch
-            _lastProgress.value = runCatching {
-                com.jmread.data.ReaderPrefs.current().lastProgressAsync(ref)
-            }.getOrNull()
-        }
+        refreshProgress()
         loadJob = viewModelScope.launch {
             val chaptersJob = launch {
                 _loading.value = true

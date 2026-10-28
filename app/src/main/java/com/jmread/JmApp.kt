@@ -13,6 +13,7 @@ import com.jmread.core.scramble.JmImageFetcher
 import com.jmread.core.scramble.JmUrlKeyer
 import com.jmread.core.scramble.ScrambleCache
 import com.jmread.data.AuthorFavourites
+import com.jmread.data.Bookmarks
 import com.jmread.data.CategorySettings
 import com.jmread.data.FollowFeedCache
 import com.jmread.data.FollowSettings
@@ -42,6 +43,8 @@ class JmApp : Application() {
         ReaderPrefs.init(this)
         GridSettings.init(this)
         SearchHistory.init(this)
+        // 本地书架：未登录态详情心形直接写这里，漏初始化会让点击直接闪退
+        Bookmarks.init(this)
         com.jmread.core.update.UpdateState.init(this)
         com.jmread.core.checkin.DailyCheckIn.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待

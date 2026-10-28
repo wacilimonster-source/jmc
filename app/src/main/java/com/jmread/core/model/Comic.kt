@@ -119,12 +119,14 @@ data class PageResult<T>(
 
 /**
  * 统一翻页判据（PiKA D2 修复）。
- * 浏览流 total 恒为 10000（=125页×80，第 126 页起服务端重发第 125 页）→ hardCap=125；
- * 搜索/榜单/评论 total 是真实命中数 → 直接 ceil；
- * total 不可信时退回「当页不满按完页处理」。
+ *
+ * 浏览流由仓储层传 `total=0`（服务端恒 10000 只是哨兵，不是真实条数），走「当页条数」判断；
+ * 搜索/榜单/标签等端点也可能返回 10000（服务端结果上限），它代表真实可翻页范围，
+ * 按 ceil 计算并受 hardCap 保护。旧实现把 10000 一律当浏览流哨兵，
+ * 导致热门搜索（如 NTR）永远只能看到 1 页 + 下一页，无法直达后面的页码。
  */
 fun pagesOf(total: Int, itemCount: Int, page: Int, pageSize: Int, hardCap: Int = Int.MAX_VALUE): Int {
-    val isRealTotal = total > 0 && total != BROWSE_TOTAL_SENTINEL
+    val isRealTotal = total > 0
     return if (isRealTotal) {
         minOf(ceilDiv(total, pageSize), hardCap)
     } else if (itemCount < pageSize) {

@@ -40,7 +40,14 @@ object Bookmarks {
     private val _items = MutableStateFlow<List<BookmarkItem>>(emptyList())
     val items: StateFlow<List<BookmarkItem>> = _items.asStateFlow()
 
-    private lateinit var context: Context
+    /**
+     * 必须由 JmApp.onCreate 调用。
+     *
+     * 用可空而不是 lateinit：本地书架是未登录用户点详情心形时的高频入口，
+     * 若装配漏掉 init，lateinit 会直接让点击闪退（0.1.8 真机复测事故）。
+     * 守卫后至少退化为「仅内存、不落盘」，不会崩。
+     */
+    private var context: Context? = null
 
     fun init(appContext: Context) {
         context = appContext.applicationContext
@@ -48,8 +55,9 @@ object Bookmarks {
     }
 
     private suspend fun load() {
+        val ctx = context ?: return
         runCatching {
-            val raw = context.bookmarksDataStore.data.first()[KEY]
+            val raw = ctx.bookmarksDataStore.data.first()[KEY]
             val list = if (raw.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString<List<BookmarkItem>>(raw) }.getOrDefault(emptyList())
             _items.value = list
@@ -82,7 +90,7 @@ object Bookmarks {
 
     private fun persist(list: List<BookmarkItem>) {
         _items.value = list
-        val ctx = context
+        val ctx = context ?: return
         AppScope.launch {
             runCatching {
                 ctx.bookmarksDataStore.edit { it[KEY] = json.encodeToString(list) }

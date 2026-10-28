@@ -401,6 +401,8 @@ fun SearchScreen(
                             onClick = {
                                 showTagSheet = false
                                 viewModel.searchTag(tag)
+                                // 输入框与结果保持一致：标签搜索的关键词就是标签本身
+                                input = tag
                                 filterPage = 1
                                 listState.requestScrollToItem(0)
                             },

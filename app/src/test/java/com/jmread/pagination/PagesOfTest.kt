@@ -8,23 +8,23 @@ import org.junit.Test
 
 /**
  * 翻页判据单测（PiKA D2 修复）：
- * 浏览流 total 恒为 10000（第 126 页起服务端原样重发第 125 页）→ 硬上限 125；
- * 搜索/榜单 total 真实 → 直接 ceil；total 不可信时退回「当页不满」判断。
+ * 浏览流由仓储层传 total=0（服务端 10000 是哨兵）→ 当页条数判断 + 125 页硬上限；
+ * 搜索/榜单 total=10000 代表服务端结果上限（真实可翻范围）→ 直接 ceil + 硬上限；
+ * total 不可信时退回「当页不满」判断。
  */
 class PagesOfTest {
 
     @Test
-    fun `浏览流哨兵 total 走当页条数判断并受 125 页硬上限约束`() {
+    fun `搜索 total 为 10000 时按真实值计算并受 125 页硬上限约束`() {
         val pageSize = 80
-        // 满页 → 还有下一页，但永远不超过 125
-        assertEquals(2, pagesOf(BROWSE_TOTAL_SENTINEL, pageSize, 1, pageSize, BROWSE_HARD_CAP))
+        assertEquals(125, pagesOf(BROWSE_TOTAL_SENTINEL, pageSize, 1, pageSize, BROWSE_HARD_CAP))
         assertEquals(125, pagesOf(BROWSE_TOTAL_SENTINEL, pageSize, 124, pageSize, BROWSE_HARD_CAP))
         assertEquals(125, pagesOf(BROWSE_TOTAL_SENTINEL, pageSize, 125, pageSize, BROWSE_HARD_CAP))
     }
 
     @Test
-    fun `浏览流不满页即到底`() {
-        assertEquals(7, pagesOf(BROWSE_TOTAL_SENTINEL, 30, 7, 80, BROWSE_HARD_CAP))
+    fun `浏览流 total=0 时不满页即到底`() {
+        assertEquals(7, pagesOf(0, 30, 7, 80, BROWSE_HARD_CAP))
     }
 
     @Test

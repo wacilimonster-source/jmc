@@ -128,7 +128,10 @@ object JmClient {
                         onUnauthorizedHook?.invoke()
                         return@withContext execute(relative, form, retriedAuth = true)
                     }
-                    if (resp.code == 401) throw JmException("禁漫接口 401：${text.take(120)}", 401)
+                    if (resp.code == 401) {
+                        val msg = apiErrorMessage(text) ?: text.take(120)
+                        throw JmException("禁漫接口 401：$msg", 401)
+                    }
                     if (isRetryableHttpStatus(resp.code)) {
                         // 5xx / 429 是服务端或网关故障：换一条线路大概率能成。
                         // 实测 2026-09-21：/search 在 4 个内置镜像上随机返回 HTTP 500（空体），
@@ -136,7 +139,8 @@ object JmClient {
                         throw IOException("禁漫接口 ${resp.code}（服务端故障，换域重试）：${text.take(80)}")
                     }
                     if (!resp.isSuccessful) {
-                        throw JmException("禁漫接口 ${resp.code}: ${text.take(120)}", resp.code)
+                        val msg = apiErrorMessage(text) ?: text.take(120)
+                        throw JmException("禁漫接口 ${resp.code}: $msg", resp.code)
                     }
                     if (text.trimStart().firstOrNull() != '{') {
                         // 网关异常页 / 风控页等非 JSON 响应：当作该 host 故障处理
@@ -161,6 +165,11 @@ object JmClient {
         }
         throw lastError ?: JmException("禁漫接口不可用：所有线路均失败")
     }
+
+    /** 从错误响应里取服务端可读的 errorMsg（登录失败等场景避免把整段 JSON 甩到用户脸上） */
+    private fun apiErrorMessage(text: String): String? = runCatching {
+        (Json.parseToJsonElement(text).jsonObject["errorMsg"] as? JsonPrimitive)?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /** 把加密的 data 字段解密后替换回原 JSON，再返回完整可解析文本 */
     private fun decryptEnvelope(text: String, ts: Long): String {

@@ -1,5 +1,6 @@
 package com.jmread.core
 
+import com.jmread.core.log.LogStore
 import com.jmread.core.model.BROWSE_HARD_CAP
 import com.jmread.core.model.ComicCategory
 import com.jmread.core.model.ComicChapter
@@ -91,8 +92,13 @@ object JmRepository {
                             favIdsCache = null
                         }
                 } else {
-                    SourcePrefs.current().clearJmLogin()
-                    favIdsCache = null
+                    // 用户选择「不保存账号密码」：无法自动重登，但也不能因为单个端点的 401
+                    // 就把一个仍然有效的会话静默清掉（详情页拉收藏态就可能触发 401 限流）。
+                    // 保留会话，让调用方把错误如实展示给用户。
+                    LogStore.log(
+                        "jm-net", "W",
+                        "收到 401 且本机未保存凭据：保留当前会话，不自动登出",
+                    )
                 }
             }
         }
@@ -399,6 +405,11 @@ object JmRepository {
         val data = JmClient.favorites(page, orderBy)
         val items = data.data.items.map { it.toSummary() }
         val pages = pagesOf(data.data.total, items.size, page, FAV_PAGE_SIZE, 500)
+        // 单页即全集时顺手填充收藏 id 集合：详情页心形初值可直接命中缓存，
+        // 少一次 /favorite 请求（该端点在高频连续请求下会返回 401）。
+        if (page == 1 && items.size < FAV_PAGE_SIZE) {
+            favIdsCache = System.currentTimeMillis() to items.map { it.id }.toSet()
+        }
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
 

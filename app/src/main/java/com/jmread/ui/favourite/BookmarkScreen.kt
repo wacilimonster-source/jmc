@@ -118,7 +118,8 @@ fun BookmarkScreen(
                 ComicGridView(
                     comics = comics,
                     loading = false,
-                    endReached = true,
+                    // 本地书架没有分页：不要渲染「到底了」页脚
+                    endReached = false,
                     listState = listState,
                     onLoadMore = {},
                     onComicClick = onComicClick,

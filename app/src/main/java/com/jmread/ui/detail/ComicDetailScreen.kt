@@ -106,6 +106,8 @@ fun ComicDetailScreen(
 
     LaunchedEffect(ref) {
         viewModel.load(ref)
+        // 从阅读器返回时页面会被重新组合：顺手刷新「继续阅读」进度
+        viewModel.refreshProgress()
     }
 
     LaunchedEffect(favouriteError) {
@@ -152,7 +154,7 @@ fun ComicDetailScreen(
             val c = comic
             if (c != null) {
                 item {
-                    ComicHeader(comic = c, onOpenAuthor = onOpenAuthor)
+                    ComicHeader(comic = c, favourited = favourited, onOpenAuthor = onOpenAuthor)
                 }
                 if (c.isPaid) {
                     // 付费本（price 非空）：透明提示，不静默给空白页
@@ -700,7 +702,7 @@ private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
+private fun ComicHeader(comic: ComicDetail, favourited: Boolean, onOpenAuthor: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -769,7 +771,8 @@ private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (comic.isFavourite) {
+            // 用实时收藏态而不是 /album.is_favorite（后者在取消收藏后仍可能是旧值）
+            if (favourited && com.jmread.core.JmRepository.isLoggedIn) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = "☁ 已云端收藏",
