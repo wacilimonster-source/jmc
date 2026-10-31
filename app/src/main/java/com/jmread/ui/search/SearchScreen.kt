@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.model.ComicSort
@@ -128,24 +129,20 @@ fun SearchScreen(
         modifier = Modifier
             .fillMaxSize(),
     ) {
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            singleLine = true,
-            placeholder = { Text("搜索漫画，多个关键词用空格分隔") },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = {
-                focusManager.clearFocus()
-                viewModel.search(input.trim(), page = 1)
-            }),
-            leadingIcon = {
-                if (onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+        // Material3 的图标槽按「lambda 是否为 null」决定是否保留空间；
+        // 传一个条件返回空的 lambda 也会左右各留出图标位，导致占位文字看起来居中。
+        val leadingIcon: @Composable (() -> Unit)? = if (onBack != null) {
+            {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
-            },
-            trailingIcon = {
+            }
+        } else {
+            null
+        }
+        val showTrailingIcons = tags.isNotEmpty() || input.isNotBlank() || keyword.isNotBlank()
+        val trailingIcon: @Composable (() -> Unit)? = if (showTrailingIcons) {
+            {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (tags.isNotEmpty()) {
                         IconButton(onClick = {
@@ -174,7 +171,31 @@ fun SearchScreen(
                         }
                     }
                 }
+            }
+        } else {
+            null
+        }
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            singleLine = true,
+            // Material3 图标槽按 lambda 是否为 null 决定保留空间；
+            // 这里再显式 start 对齐，保证占位/已输入文字始终靠左
+            textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Start),
+            placeholder = {
+                Text(
+                    text = "搜索漫画，多个关键词用空格分隔",
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = {
+                focusManager.clearFocus()
+                viewModel.search(input.trim(), page = 1)
+            }),
+            leadingIcon = leadingIcon,
+            trailingIcon = trailingIcon,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -260,64 +281,66 @@ fun SearchScreen(
             }
         }
         if (displayComics.isEmpty()) {
-            // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻。
+            // 提示与历史从上往下排，不整块居中：搜索页常有大片空白，居中会显得提示“悬空”。
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                Text(
+                    text = when {
+                        loading -> "搜索中..."
+                        searchError != null -> "搜索失败：$searchError"
+                        keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
+                        readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                        else -> "没有更多结果"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+                // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
+                if (searchError != null && !loading && keyword.isNotBlank()) {
                     Text(
-                        text = when {
-                            loading -> "搜索中..."
-                            searchError != null -> "搜索失败：$searchError"
-                            keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
-                            readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
-                            else -> "没有更多结果"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "点击重试",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .clickable { viewModel.search(keyword, page = 1) },
                     )
-                    // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
-                    if (searchError != null && !loading && keyword.isNotBlank()) {
-                        Text(
-                            text = "点击重试",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .clickable { viewModel.search(keyword, page = 1) },
-                        )
-                    }
-                    // 搜索历史：仅在「无结果、未加载、无错误」时展示，避免挤占结果与错误态
-                    if (history.isNotEmpty() && keyword.isBlank() && !loading && searchError == null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                }
+                // 搜索历史：仅在「无结果、未加载、无错误」时展示，避免挤占结果与错误态
+                if (history.isNotEmpty() && keyword.isBlank() && !loading && searchError == null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("搜索历史", style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "清空",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { com.jmread.data.SearchHistory.clear() },
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(top = 8.dp),
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("搜索历史", style = MaterialTheme.typography.titleSmall)
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    "清空",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable { com.jmread.data.SearchHistory.clear() },
+                            history.forEach { kw ->
+                                SuggestionChip(
+                                    onClick = {
+                                        input = kw
+                                        filterPage = 1
+                                        focusManager.clearFocus()
+                                        viewModel.search(kw, page = 1)
+                                    },
+                                    label = { Text(kw) },
                                 )
-                            }
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(top = 8.dp),
-                            ) {
-                                history.forEach { kw ->
-                                    SuggestionChip(
-                                        onClick = {
-                                            input = kw
-                                            filterPage = 1
-                                            focusManager.clearFocus()
-                                            viewModel.search(kw, page = 1)
-                                        },
-                                        label = { Text(kw) },
-                                    )
-                                }
                             }
                         }
                     }
