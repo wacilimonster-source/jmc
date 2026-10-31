@@ -186,6 +186,7 @@ fun CategoryReorderDialog(
                     com.jmread.data.CategorySettings.Settings(
                         order = order.map { it.first },
                         hidden = hidden,
+                        pinnedTags = currentSettings.pinnedTags,
                     )
                 )
                 onDismiss()

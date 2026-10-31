@@ -1,52 +1,38 @@
 package com.jmread.ui.category
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,56 +44,108 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import com.jmread.core.model.ComicCategory
-import com.jmread.core.model.ComicSort
-import com.jmread.core.model.ComicStatus
 import com.jmread.core.JmCapabilities
+import com.jmread.core.JmRepository
+import com.jmread.core.TagGroup
+import com.jmread.core.model.ComicSubCategory
+import com.jmread.data.CategorySettings
 import com.jmread.ui.browse.BrowseViewModel
 import com.jmread.ui.browse.ComicGridView
+import com.jmread.ui.browse.PaginationBar
 import com.jmread.ui.browse.filterByRead
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * 分类 Tab：以网格展示当前源的全部分类。
- * 点击分类进入该分类的漫画流（[CategoryComicsScreen]）。
- * 支持拖拽排序和显示/隐藏设置，本地持久化保存。
+ * 分类 Tab：官方分类 + 官方标签的紧凑单页。
+ *
+ * 顶级分类、子分类、官方标签都用紧凑 chip，不再用大卡占屏；
+ * 置顶标签由用户从官方标签中选择并持久化。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CategoryScreen(
-    onCategoryClick: (String) -> Unit,
+    onCategoryClick: (String) -> Unit = {},
+    onSubcategoryClick: (String, String) -> Unit = { _, _ -> },
     onComicClick: (String) -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
 ) {
     val categories by viewModel.categories.collectAsState()
+    var settings by remember { mutableStateOf(CategorySettings.Settings()) }
+    var tagGroups by remember { mutableStateOf<List<TagGroup>>(emptyList()) }
+    var tagGroupsLoading by remember { mutableStateOf(true) }
+    var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    // 组合期不做磁盘/SharedPreferences 读取：初值给空设置，在 LaunchedEffect 中加载
-    var settings by remember { mutableStateOf(com.jmread.data.CategorySettings.Settings()) }
 
     LaunchedEffect(Unit) {
         viewModel.loadCategories()
+        settings = withContext(Dispatchers.IO) { CategorySettings.get() }
     }
+
     LaunchedEffect(Unit) {
-        settings = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.jmread.data.CategorySettings.get()
+        tagGroups = runCatching {
+            withContext(Dispatchers.IO) { JmRepository.tagGroups() }
+        }.getOrDefault(emptyList())
+        tagGroupsLoading = false
+    }
+
+    // 顶级分类保留既有显示/隐藏与拖动排序设置。
+    val topLevelCategories = remember(categories, settings) {
+        val filtered = categories.filter { it.id !in settings.hidden }
+        if (settings.order.isEmpty()) {
+            filtered
+        } else {
+            val orderMap = settings.order.withIndex().associate { (index, id) -> id to index }
+            filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
         }
     }
 
-    val displayCategories = remember(categories, settings) {
-        val filtered = categories.filter { it.id !in settings.hidden }
-        if (settings.order.isNotEmpty()) {
-            val orderMap = settings.order.withIndex().associate { (i, id) -> id to i }
-            filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
-        } else {
-            filtered
+    // 显示层去重：只合并「同名顶级分类/同名子分类」，不把 slug 相同但语义不同的入口合并
+    // （顶级 Cosplay 与 其他類/角色扮演 是两个内容位，不能互删）。
+    val topLevelSlugs = remember(topLevelCategories) {
+        topLevelCategories.map { it.id.lowercase() }.toSet()
+    }
+    val topLevelTitles = remember(topLevelCategories) {
+        topLevelCategories.map { it.title.lowercase() }.toSet()
+    }
+
+    val selectedCategory = topLevelCategories.firstOrNull { it.id == selectedCategoryId }
+        ?: topLevelCategories.firstOrNull()
+    val selectedSubCategories = remember(selectedCategory, topLevelSlugs, topLevelTitles) {
+        selectedCategory?.subCategories.dedupedAgainst(topLevelSlugs, topLevelTitles)
+    }
+    val dedupedSubCount = topLevelCategories.sumOf {
+        it.subCategories.dedupedAgainst(topLevelSlugs, topLevelTitles).size
+    }
+
+    LaunchedEffect(topLevelCategories) {
+        selectedCategoryId = when {
+            topLevelCategories.isEmpty() -> null
+            topLevelCategories.any { it.id == selectedCategoryId } -> selectedCategoryId
+            else -> topLevelCategories.first().id
         }
+    }
+
+    fun togglePinnedTag(tag: String) {
+        val next = CategorySettings.togglePinnedTag(settings, tag)
+        settings = next
+        CategorySettings.save(next)
+    }
+
+    if (showSettings) {
+        CategoryReorderDialog(
+            categories = categories,
+            currentSettings = settings,
+            onSettingsChange = { newSettings ->
+                settings = newSettings
+                CategorySettings.save(newSettings)
+            },
+            onDismiss = { showSettings = false },
+        )
     }
 
     Scaffold(
@@ -116,66 +154,151 @@ fun CategoryScreen(
                 title = { Text("分类") },
                 actions = {
                     IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                        Icon(Icons.Filled.Settings, contentDescription = "分类设置")
                     }
                 },
                 windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->
-        if (displayCategories.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(displayCategories, key = { it.id }) { category ->
-                    CategoryCard(category = category, onClick = { onCategoryClick(category.id) })
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
+        ) {
+            // ── 置顶标签 ──────────────────────────────────────────────
+            CategorySectionHead(title = "置顶标签", count = "${settings.pinnedTags.size} 个")
+            if (settings.pinnedTags.isEmpty()) {
+                CategoryHint("点击下方标签置顶，最多 ${CategorySettings.MAX_PINNED_TAGS} 个")
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    settings.pinnedTags.forEach { tag ->
+                        FilterChip(
+                            selected = true,
+                            onClick = { togglePinnedTag(tag) },
+                            label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "取消置顶 $tag",
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            },
+                        )
+                    }
                 }
             }
-        }
-        if (showSettings) {
-            CategoryReorderDialog(
-                categories = categories,
-                currentSettings = settings,
-                onSettingsChange = { newSettings ->
-                    settings = newSettings
-                    com.jmread.data.CategorySettings.save(newSettings)
+
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+
+            // ── 分类 ──────────────────────────────────────────────────
+            CategorySectionHead(
+                title = "分类",
+                count = if (topLevelCategories.isEmpty()) {
+                    null
+                } else {
+                    "${topLevelCategories.size} 个顶级分类 · $dedupedSubCount 个子分类"
                 },
-                onDismiss = { showSettings = false },
             )
+            if (topLevelCategories.isEmpty()) {
+                CategoryHint(if (categories.isEmpty()) "分类加载中…" else "所有分类已隐藏")
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    topLevelCategories.forEach { category ->
+                        FilterChip(
+                            selected = category.id == selectedCategory?.id,
+                            onClick = { selectedCategoryId = category.id },
+                            label = { Text(category.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
+                }
+
+                selectedCategory?.let { category ->
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = false,
+                                onClick = { onCategoryClick(category.id) },
+                                label = { Text("全部") },
+                            )
+                        }
+                        items(selectedSubCategories, key = { "${category.id}|${it.slug}" }) { sub ->
+                            FilterChip(
+                                selected = false,
+                                onClick = { onSubcategoryClick(category.id, sub.name) },
+                                label = { Text(sub.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+
+            // ── 官方标签 ──────────────────────────────────────────────
+            CategorySectionHead(
+                title = "官方标签",
+                count = if (tagGroups.isEmpty()) {
+                    null
+                } else {
+                    "${tagGroups.size} 组 · ${tagGroups.sumOf { it.tags.size }} 个"
+                },
+            )
+            when {
+                tagGroups.isEmpty() && tagGroupsLoading -> CategoryHint("标签加载中…")
+                tagGroups.isEmpty() -> CategoryHint("暂无官方标签")
+                else -> tagGroups.forEachIndexed { index, group ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            Modifier.padding(vertical = 9.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        )
+                    }
+                    CategoryGroupTitle(
+                        title = group.title,
+                        count = "${group.tags.size} 个",
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
+                    ) {
+                        items(group.tags, key = { "${group.title}|$it" }) { tag ->
+                            FilterChip(
+                                selected = tag in settings.pinnedTags,
+                                onClick = { togglePinnedTag(tag) },
+                                label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
         }
     }
 }
 
 /**
- * 分类漫画流：固定一个分类，分页浏览，当前仅提供排序筛选。
- *
- * 注：BrowseViewModel 具备连载状态筛选（setStatus / supportsStatusFilter），但本页面
- * 未渲染状态筛选入口，因此该能力在此处于"已实现未接线"状态。此前注释声称"支持排序 +
- * 连载状态筛选"，与界面不符。要启用需在此补状态 chip 并在 ComicGridView 的筛选区呈现。
+ * 分类详情：顶级分类直接走 /categories/filter；
+ * 二级分类用「子分类名 + 顶级分类 c=」搜索，作为官方结构的可用快捷入口。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoryComicsScreen(
     categoryId: String,
+    subCategory: String? = null,
     onBack: () -> Unit,
     onComicClick: (String) -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
@@ -188,14 +311,25 @@ fun CategoryComicsScreen(
     val sort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
+    val supportedSorts = remember { JmCapabilities.supportedSorts }
 
-    // 保存滚动位置
+    val routeSub = subCategory?.takeIf { it.isNotBlank() }.orEmpty()
+    var currentSub by rememberSaveable(categoryId, routeSub) { mutableStateOf(routeSub) }
+    var readFilterName by rememberSaveable(categoryId, currentSub) {
+        mutableStateOf(com.jmread.ui.browse.ReadFilter.ALL.name)
+    }
+    var filterPage by rememberSaveable(categoryId, currentSub) { mutableStateOf(1) }
+    val readFilter = com.jmread.ui.browse.ReadFilter.valueOf(readFilterName)
+
+    val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
+    val title = if (currentSub.isBlank()) categoryTitle else "$categoryTitle · $currentSub"
+    val reloadKey = "$categoryId|${currentSub.ifBlank { "" }}"
+
     DisposableEffect(Unit) {
         onDispose {
             viewModel.saveScrollState(listState.firstVisibleItemIndex)
         }
     }
-    // 恢复滚动位置
     LaunchedEffect(viewModel.isScrollStateRestored) {
         if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
@@ -203,26 +337,35 @@ fun CategoryComicsScreen(
         }
     }
 
-    val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
-    val supportedSorts = remember { JmCapabilities.supportedSorts }
-
-    LaunchedEffect(categoryId) {
+    LaunchedEffect(categoryId, currentSub) {
         viewModel.loadCategories()
-        // 同分类且已有数据时（从详情返回重组）VM 内部会跳过重载，保留累积分页与滚动状态
-        viewModel.loadComics(page = 1, category = categoryId, reloadKey = categoryId)
+        viewModel.loadComics(
+            page = 1,
+            category = categoryId,
+            subCategory = currentSub.ifBlank { null },
+            reloadKey = reloadKey,
+        )
+    }
+    LaunchedEffect(currentSub) {
+        filterPage = 1
+        listState.requestScrollToItem(0)
     }
 
-    // 当前排序不在能力声明内时回退到默认
-    LaunchedEffect(supportedSorts) {
-        if (viewModel.sort.value !in supportedSorts) {
-            viewModel.setSort(supportedSorts.first())
-        }
+    val category = categories.firstOrNull { it.id == categoryId }
+    val topLevelSlugs = remember(categories) {
+        categories.map { it.id.lowercase() }.toSet()
+    }
+    val topLevelTitles = remember(categories) {
+        categories.map { it.title.lowercase() }.toSet()
+    }
+    val subCategories = remember(category, topLevelSlugs, topLevelTitles) {
+        category?.subCategories.dedupedAgainst(topLevelSlugs, topLevelTitles)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(categoryTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -238,17 +381,28 @@ fun CategoryComicsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // 排序 + 阅读状态筛选
-            var readFilterName by rememberSaveable { mutableStateOf(com.jmread.ui.browse.ReadFilter.ALL.name) }
-            val readFilter = com.jmread.ui.browse.ReadFilter.valueOf(readFilterName)
-            // 筛选模式下的客户端翻页（累积数据按 20 条一页切片，纯本地不请求）
-            var filterPage by rememberSaveable { mutableStateOf(1) }
-            // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
-            LaunchedEffect(readFilter, comics, loading, endReached) {
-                if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
-                    viewModel.loadMore()
+            if (subCategories.isNotEmpty()) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        FilterChip(
+                            selected = currentSub.isBlank(),
+                            onClick = { currentSub = "" },
+                            label = { Text("全部") },
+                        )
+                    }
+                    items(subCategories, key = { "${categoryId}|${it.slug}" }) { sub ->
+                        FilterChip(
+                            selected = currentSub == sub.name,
+                            onClick = { currentSub = sub.name },
+                            label = { Text(sub.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
                 }
             }
+
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -258,8 +412,6 @@ fun CategoryComicsScreen(
                         selected = sort == s,
                         onClick = {
                             viewModel.setSort(s)
-                            // 排序会重新加载第 1 页：分页条高亮必须同步归位，
-                            // 否则数据回到第 1 页、UI 还停在旧页码。
                             filterPage = 1
                             listState.requestScrollToItem(0)
                         },
@@ -281,8 +433,7 @@ fun CategoryComicsScreen(
                     }
                 }
             }
-            // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
-            // 筛选模式：累积数据按服务端页（20 条）切片 + 过滤，页码可点（客户端翻页）
+
             val displayComics = remember(readFilter, comics, filterPage) {
                 if (readFilter == com.jmread.ui.browse.ReadFilter.ALL) {
                     comics
@@ -290,21 +441,19 @@ fun CategoryComicsScreen(
                     comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
                 }
             }
-            // 分页条回调（筛选模式=客户端切片换页；全部模式=服务端单页换页），正常/空态两个分支共用
             val onBarPageChange: (Int) -> Unit = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
                 { p ->
                     filterPage = p
-                    // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
                     listState.requestScrollToItem(0)
                 }
             } else {
                 { p ->
                     filterPage = p
                     viewModel.jumpToPage(p)
-                    // 服务端换页：旧列表尚在展示时先回顶，新数据替换后仍停留在顶部
                     listState.requestScrollToItem(0)
                 }
             }
+
             if (error != null && comics.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -318,7 +467,6 @@ fun CategoryComicsScreen(
                     )
                 }
             } else if (displayComics.isEmpty() && !loading) {
-                // 空态也保留分页条（有多页时），避免筛选切片为空时无路可翻
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -327,17 +475,17 @@ fun CategoryComicsScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
-                            "没有符合条件的作品"
-                        } else {
-                            "该分类下暂无符合条件的漫画"
+                        text = when {
+                            readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                            currentSub.isNotBlank() -> "「$currentSub」暂无匹配作品"
+                            else -> "该分类下暂无符合条件的漫画"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (totalPages > 1) {
-                    com.jmread.ui.browse.PaginationBar(
+                    PaginationBar(
                         currentPage = filterPage,
                         totalPages = totalPages,
                         loadedPages = (comics.size + 19) / 20,
@@ -346,8 +494,6 @@ fun CategoryComicsScreen(
                     )
                 }
             } else {
-                // 跳页失败但旧内容还在展示：必须显式提示，否则旧页内容顶着新页码、
-                // 用户以为已翻页成功（此前错误只在列表为空时才显示）
                 if (error != null && displayComics.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -376,13 +522,12 @@ fun CategoryComicsScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    // 纯分页设计（v1.5.14）：滚动不追加；筛选模式的自动补页由上方 LaunchedEffect 后台链驱动
                     onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                     showTailLoading = readFilter == com.jmread.ui.browse.ReadFilter.ALL,
                 )
-                com.jmread.ui.browse.PaginationBar(
+                PaginationBar(
                     currentPage = filterPage,
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
@@ -395,46 +540,62 @@ fun CategoryComicsScreen(
 }
 
 @Composable
-private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
-    Card(
+private fun CategorySectionHead(title: String, count: String?) {
+    Row(
+        verticalAlignment = Alignment.Bottom,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            .padding(top = 8.dp, bottom = 7.dp),
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(80.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!category.coverUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = category.coverUrl,
-                        contentDescription = category.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Text(
-                        text = category.title.take(1),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+        )
+        if (!count.isNullOrBlank()) {
             Text(
-                text = category.title,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                text = count,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 7.dp),
             )
         }
     }
 }
+
+@Composable
+private fun CategoryGroupTitle(title: String, count: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 2.dp, bottom = 6.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            text = count,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun CategoryHint(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 2.dp, bottom = 4.dp),
+    )
+}
+
+/** 同名顶级分类不在子分类里重复展示（例如顶级 3D 与 其他類/3D）。 */
+private fun List<ComicSubCategory>?.dedupedAgainst(
+    topLevelSlugs: Set<String>,
+    topLevelTitles: Set<String>,
+): List<ComicSubCategory> =
+    orEmpty().filter { sub ->
+        sub.slug.lowercase() !in topLevelSlugs && sub.name.lowercase() !in topLevelTitles
+    }

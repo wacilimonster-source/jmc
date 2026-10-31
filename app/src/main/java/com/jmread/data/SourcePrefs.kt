@@ -28,6 +28,8 @@ private object Keys {
     val JM_VERSION = stringPreferencesKey("jm_version")
     /** 18+ 确认（首启一次性） */
     val AGE_CONFIRMED = booleanPreferencesKey("age_confirmed")
+    /** 书架 backfill「暂不」拒绝标记：记录拒绝时的 uid，同账号不再二次弹窗 */
+    val BACKFILL_DECLINED_UID = stringPreferencesKey("backfill_declined_uid")
 }
 
 /**
@@ -60,6 +62,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
     @Volatile private var cachedResolvedImg: String? = null
     @Volatile private var cachedVersion: String? = null
     @Volatile private var cachedAgeConfirmed: Boolean? = null
+    @Volatile private var cachedBackfillDeclinedUid: String? = null
     /** 预热是否成功完成。false 时 getter 才需要磁盘兜底（区分「还没读」与「读到了空值」） */
     @Volatile private var cacheLoaded = false
 
@@ -75,6 +78,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
                 cachedResolvedImg = prefs[Keys.JM_RESOLVED_IMG]?.takeIf { it.isNotEmpty() }
                 cachedVersion = prefs[Keys.JM_VERSION]?.takeIf { it.isNotEmpty() }
                 cachedAgeConfirmed = prefs[Keys.AGE_CONFIRMED] ?: false
+                cachedBackfillDeclinedUid = prefs[Keys.BACKFILL_DECLINED_UID]?.takeIf { it.isNotEmpty() }
                 cacheLoaded = true
             }
         }
@@ -131,6 +135,21 @@ class SourcePrefs private constructor(private val appContext: Context) {
             it.remove(Keys.JM_ACCOUNT)
             it.remove(Keys.JM_UID)
         }
+    }
+
+    /** 书架 backfill「暂不」：记录拒绝时的 uid，同账号生命周期内不再弹（换账号会重新询问） */
+    val backfillDeclinedUid: String?
+        get() = if (cacheLoaded) {
+            cachedBackfillDeclinedUid
+        } else {
+            runBlocking {
+                appContext.dataStore.data.first()[Keys.BACKFILL_DECLINED_UID]?.takeIf { it.isNotEmpty() }
+            }.also { cachedBackfillDeclinedUid = it }
+        }
+
+    suspend fun setBackfillDeclinedUid(uid: String) {
+        cachedBackfillDeclinedUid = uid
+        appContext.dataStore.edit { it[Keys.BACKFILL_DECLINED_UID] = uid }
     }
 
     // ---------- 域名与版本 ----------

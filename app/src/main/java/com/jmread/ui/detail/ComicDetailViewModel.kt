@@ -2,8 +2,9 @@ package com.jmread.ui.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jmread.core.JmCapabilities
 import com.jmread.core.JmRepository
+import com.jmread.core.library.LibraryRepository
+import com.jmread.core.library.LibraryRepository.CollectResult
 import com.jmread.core.model.ComicChapter
 import com.jmread.core.model.ComicComment
 import com.jmread.core.model.ComicDetail
@@ -157,12 +158,14 @@ class ComicDetailViewModel : ViewModel() {
                 }
                 // 心形初值放到详情发布之后异步拉取：/favorite 可能连续请求 3 页，
                 // 网络不稳时绝不能让整个详情页等它（此前详情主体会被收藏接口阻塞数秒到数分钟）。
+                // 统一书架后心形 = 本地书架 ∪ 云端收藏（不再按登录态二选一）。
                 favouriteInitJob?.cancel()
                 favouriteInitJob = viewModelScope.launch {
+                    val local = Bookmarks.contains(comicId)
                     val fav = if (JmRepository.isLoggedIn) {
-                        runCatching { JmRepository.isCloudFavourite(comicId) }.getOrDefault(false)
+                        local || runCatching { JmRepository.isCloudFavourite(comicId) }.getOrDefault(false)
                     } else {
-                        Bookmarks.contains(comicId)
+                        local
                     }
                     if (gen == loadGeneration) _favourited.value = fav
                 }
@@ -266,17 +269,16 @@ class ComicDetailViewModel : ViewModel() {
     private val _favouriteError = MutableStateFlow<String?>(null)
     val favouriteError: StateFlow<String?> = _favouriteError
 
-    /** 心形可用：登录走云端翻转，未登录走本地书架 */
+    /** 心形始终可用：收藏动作本地 + 云端双写（docs/unified-library-design.md §4.2） */
     fun canFavourite(): Boolean = true
 
     /** 防双击：翻转在途时忽略再次点击（云端端点是开关，连点两次=加了又取消） */
     private var togglingFavourite = false
 
     /**
-     * 收藏 / 取消收藏。
-     * 已登录：POST /favorite {aid} 翻转端点，以服务端响应 type=add|remove 回写
-     * （2026-09-25 实测，响应机器可读；不本地乐观翻转）。
-     * 未登录：本地书架。
+     * 收藏 / 取消收藏（双写）：本地书架先行（即时生效、离线可用），已登录则云端对账后翻转；
+     * 云端失败自动入同步队列，稍后 flush 补齐（不盲翻——端点非幂等）。逻辑统一收口在
+     * [LibraryRepository.setCollected]，书架卡片心形与此共用同一条路径。
      */
     fun favourite() {
         val comic = _comic.value ?: return
@@ -284,31 +286,37 @@ class ComicDetailViewModel : ViewModel() {
         if (comicId.isEmpty() || togglingFavourite) return
         // 用户已主动操作：取消还没回来的初值拉取，避免旧值把刚翻转的结果盖掉
         favouriteInitJob?.cancel()
+        val target = !_favourited.value
+        togglingFavourite = true
+        // 本地结果即时上屏（书架同步写入在挂起调用内完成，离线也成功）
+        _favourited.value = target
         viewModelScope.launch {
-            if (JmRepository.isLoggedIn && JmCapabilities.hasCloudFavouriteWrite) {
-                togglingFavourite = true
-                try {
-                    val now = JmRepository.favourite(comicId)
-                    _favourited.value = now
-                    LogStore.log("Detail", "I", "cloud favourite toggled: comic=$comicId, favourited=$now")
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _favouriteError.value = e.message ?: "收藏操作失败"
-                    LogStore.log("Detail", "E", "cloud favourite failed: comic=$comicId, error=${e.message}")
-                } finally {
-                    togglingFavourite = false
-                }
-            } else {
-                val added = Bookmarks.toggle(
+            try {
+                val result = LibraryRepository.setCollected(
                     comicId = comicId,
+                    target = target,
                     title = comic.title,
                     author = comic.author,
                     coverUrl = comic.coverUrl ?: "",
                     note = comic.updatedAt,
                 )
-                _favourited.value = added
-                LogStore.log("Detail", "I", "bookmark toggled: comic=$comicId, added=$added")
+                // 服务端终态若与意图不符（缓存过期/并发翻转），setCollected 已按服务端回填本地，
+                // 这里以本地书架为最终展示真相
+                _favourited.value = Bookmarks.contains(comicId)
+                when (result) {
+                    is CollectResult.Queued -> {
+                        _favouriteError.value = result.message
+                        LogStore.log("Detail", "W", "favourite queued: comic=$comicId target=$target")
+                    }
+                    else -> {
+                        LogStore.log(
+                            "Detail", "I",
+                            "favourite done: comic=$comicId target=$target result=$result",
+                        )
+                    }
+                }
+            } finally {
+                togglingFavourite = false
             }
         }
     }

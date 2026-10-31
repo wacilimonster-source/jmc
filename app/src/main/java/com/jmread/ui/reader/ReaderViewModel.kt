@@ -295,6 +295,8 @@ class ReaderViewModel : ViewModel() {
                         pageIndex = pageNow,
                     )
                 }
+                // 书架（阅读历史参与排序/续读行）即时反映本次阅读
+                com.jmread.core.library.LibraryRepository.notifyLocalChanged()
             }
             return
         }
@@ -309,6 +311,7 @@ class ReaderViewModel : ViewModel() {
                     pageIndex = pageNow,
                 )
             }
+            com.jmread.core.library.LibraryRepository.notifyLocalChanged()
         }
     }
 

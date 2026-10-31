@@ -59,7 +59,14 @@ class BrowseViewModel : ViewModel() {
 
     private var category: String? = null
 
-    /** 已加载数据的标识（源+分类，由界面传入）：从详情返回重组时相同且有数据则跳过重载，保留累积分页与滚动状态 */
+    /**
+     * 当前子分类搜索词（仅二级分类详情使用）。
+     * 实测移动端 /categories/filter 的 c= 只对顶级分类生效；二级分类用「子分类名 + 顶级分类 c=」
+     * 的搜索结果作为快捷入口，而不是伪装成精确过滤。
+     */
+    private var subCategory: String? = null
+
+    /** 已加载数据的标识（源+分类+子分类，由界面传入）：从详情返回重组时相同且有数据则跳过重载，保留累积分页与滚动状态 */
     private var loadedKey: String? = null
 
     /** 加载代际：切排序/筛选/换源时递增，使旧加载在 await 后失效，避免并发写脏数据 */
@@ -96,12 +103,18 @@ class BrowseViewModel : ViewModel() {
         }
     }
 
-    fun loadComics(page: Int, category: String? = null, reloadKey: String? = null) {
+    fun loadComics(
+        page: Int,
+        category: String? = null,
+        subCategory: String? = null,
+        reloadKey: String? = null,
+    ) {
         if (page <= 1 && reloadKey != null) {
-            // 同一分类同一源且已有数据：界面重组（如从详情返回）触发时跳过重载；
+            // 同一分类/子分类且已有数据：界面重组（如从详情返回）触发时跳过重载；
             // 内部 reload（切排序等）不带 key，不覆盖 loadedKey，返回后仍可跳过重载
             if (reloadKey == loadedKey && rawItems.isNotEmpty()) return
             this.category = category
+            this.subCategory = subCategory?.takeIf { it.isNotBlank() }
             loadedKey = reloadKey
         }
         jumpToPage(page)
@@ -133,11 +146,21 @@ class BrowseViewModel : ViewModel() {
                 if (!append) rawItems.clear()
                 if (token != loadToken) return@launch
                 val p = page.coerceAtLeast(1)
-                val result = JmRepository.browse(
-                    page = p,
-                    category = this@BrowseViewModel.category,
-                    sort = _sort.value,
-                )
+                val result = if (subCategory.isNullOrBlank()) {
+                    JmRepository.browse(
+                        page = p,
+                        category = this@BrowseViewModel.category,
+                        sort = _sort.value,
+                    )
+                } else {
+                    JmRepository.searchDimension(
+                        keyword = subCategory.orEmpty(),
+                        page = p,
+                        sort = _sort.value,
+                        mainTag = 0,
+                        category = this@BrowseViewModel.category,
+                    )
+                }
                 if (token != loadToken) return@launch
                 rawItems += result.items
                 _currentPage.value = p

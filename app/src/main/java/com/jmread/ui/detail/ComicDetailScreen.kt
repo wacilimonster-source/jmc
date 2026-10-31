@@ -772,10 +772,10 @@ private fun ComicHeader(comic: ComicDetail, favourited: Boolean, onOpenAuthor: (
                 )
             }
             // 用实时收藏态而不是 /album.is_favorite（后者在取消收藏后仍可能是旧值）
-            if (favourited && com.jmread.core.JmRepository.isLoggedIn) {
+            if (favourited) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "已云端收藏",
+                    text = if (com.jmread.core.JmRepository.isLoggedIn) "已收藏 · 本地与云端" else "已收藏",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )

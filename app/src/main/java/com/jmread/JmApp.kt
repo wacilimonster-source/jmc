@@ -45,10 +45,15 @@ class JmApp : Application() {
         SearchHistory.init(this)
         // 本地书架：未登录态详情心形直接写这里，漏初始化会让点击直接闪退
         Bookmarks.init(this)
+        // 收藏同步队列：双写失败时的意图落盘（启动后统一 flush 对账补差）
+        com.jmread.data.FavouriteSyncQueue.init(this)
         com.jmread.core.update.UpdateState.init(this)
         com.jmread.core.checkin.DailyCheckIn.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
         appScope.launch { ReaderStatus.loadAll(this@JmApp) }
+        // 统一书架：装配并集条目流；已登录则启动时 flush 一次收藏同步队列
+        com.jmread.core.library.LibraryRepository.init()
+        appScope.launch { com.jmread.core.library.LibraryRepository.flushPendingSync() }
         CategorySettings.init(this)
         AuthorFavourites.init(this)
         FollowSettings.init(this)

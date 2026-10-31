@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- JM Reader 图标背景：深炭蓝径向渐变 + 金色微光晕 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 深炭蓝径向渐变底 -->
+    <path android:pathData="M0,0 h108 v108 h-108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="46"
+                android:gradientRadius="64">
+                <item android:offset="0" android:color="#FF272A34" />
+                <item android:offset="0.7" android:color="#FF191B22" />
+                <item android:offset="1" android:color="#FF101218" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 书本身后的金色微光晕 -->
+    <path android:pathData="M24,58 a30,30 0 1 0 60,0 a30,30 0 1 0 -60,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="58"
+                android:gradientRadius="30">
+                <item android:offset="0" android:color="#2BF0B93B" />
+                <item android:offset="1" android:color="#00F0B93B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

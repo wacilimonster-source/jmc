@@ -207,6 +207,11 @@ fun MainScreen() {
                     onCategoryClick = { id ->
                         navController.navigate("category/${Uri.encode(id)}")
                     },
+                    onSubcategoryClick = { categoryId, subCategory ->
+                        navController.navigate(
+                            "category/${Uri.encode(categoryId)}?sub=${Uri.encode(subCategory)}",
+                        )
+                    },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
@@ -232,23 +237,24 @@ fun MainScreen() {
                 MineScreen(
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenDownloads = { navController.navigate("downloads") },
-                    onOpenBookmarks = { navController.navigate("bookmarks") },
+                    onOpenLibrary = { navController.navigate("library") },
                     onOpenAuthorFavourites = { navController.navigate("author-favourites") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
                     onOpenReader = { comicId, order ->
                         navController.navigate(readerRoute(comicId, order))
                     },
                     onOpenLogin = { navController.navigate("login") { launchSingleTop = true } },
-                    onOpenRecentReads = { navController.navigate("recent-reads") },
-                    onOpenCloudFavourites = { navController.navigate("cloud-favourites") },
-                    onOpenCloudHistory = { navController.navigate("cloud-history") },
                 )
             }
-            composable("recent-reads") {
-                com.jmread.ui.history.RecentReadsScreen(
+            // 统一书架：本地书架/云端收藏/阅读历史/云端历史四入口合并（docs/unified-library-design.md）
+            composable("library") {
+                com.jmread.ui.library.LibraryScreen(
                     onBack = { navController.popBackStack() },
                     onOpenComic = { id ->
                         navController.navigate(comicRoute(id))
+                    },
+                    onOpenReader = { id, order ->
+                        navController.navigate(readerRoute(id, order))
                     },
                 )
             }
@@ -258,24 +264,6 @@ fun MainScreen() {
                     onComicClick = { id, order ->
                         navController.navigate(readerRoute(id, order))
                     },
-                )
-            }
-            composable("bookmarks") {
-                com.jmread.ui.favourite.BookmarkScreen(
-                    onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
-                )
-            }
-            composable("cloud-favourites") {
-                com.jmread.ui.favourite.CloudFavouritesScreen(
-                    onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
-                )
-            }
-            composable("cloud-history") {
-                com.jmread.ui.history.CloudHistoryScreen(
-                    onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
             }
             composable("author-favourites") {
@@ -308,15 +296,21 @@ fun MainScreen() {
                 LogScreen(onBack = { navController.popBackStack() })
             }
             composable(
-                "category/{categoryId}",
+                "category/{categoryId}?sub={sub}",
                 arguments = listOf(
                     navArgument("categoryId") { type = NavType.StringType },
+                    navArgument("sub") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
                 ),
             ) { entry ->
                 val categoryId: String? = entry.arguments?.getString("categoryId")
                 if (categoryId == null) return@composable
                 CategoryComicsScreen(
                     categoryId = categoryId,
+                    subCategory = entry.arguments?.getString("sub"),
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))

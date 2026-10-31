@@ -137,6 +137,15 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 
+    /** 清除单部作品的进度与读完标记（书架「清除阅读记录」用；历史条目由调用方另行删除） */
+    suspend fun clearProgress(ref: String) {
+        progressCache.remove(ref)
+        appContext.readerDataStore.edit {
+            it.remove(stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + ref))
+            it.remove(stringPreferencesKey(ReaderKeys.FINISHED_PREFIX + ref))
+        }
+    }
+
     /**
      * 一次性读取全部进度/读完标记（启动预热内存缓存用；finished_ 优先于 progress_，避免被降级覆盖）。
      *

@@ -47,4 +47,10 @@ object ReaderStatus {
         map[ref] = ReadStatus.FINISHED
         _version.value++
     }
+
+    /** 清除状态（书架「清除阅读记录」用；version 递增驱动列表角标刷新） */
+    fun clear(ref: String) {
+        if (map.remove(ref) == null) return
+        _version.value++
+    }
 }

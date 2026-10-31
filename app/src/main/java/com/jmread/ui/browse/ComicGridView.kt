@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +64,14 @@ fun ComicGridView(
     newUntil: String = "",
     /** 终态页脚文案 */
     endHintText: String = "到底了",
+    /**
+     * 可选状态行（书架「续读 · 第 N 话 P 页」等）：返回 null 不显示。
+     * 显示时与可选心形同排，取代卡片底部的日期/点赞行。
+     */
+    statusLineOf: ((String) -> String?)? = null,
+    /** 可选收藏心形（书架卡片）：返回当前收藏态；null 不显示。点击回调 onFavouriteToggle */
+    collectedOf: ((String) -> Boolean?)? = null,
+    onFavouriteToggle: ((String) -> Unit)? = null,
 ) {
     val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
     val columns by com.jmread.data.GridSettings.columnsFlow.collectAsState()
@@ -79,11 +88,17 @@ fun ComicGridView(
             val isNew = remember(comic.ref, newUntil) {
                 newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
             }
+            // 不 remember：列表数据变化（收藏切换/进度更新）后必须在下次重组直接反映新值
+            val statusLine = statusLineOf?.invoke(comic.ref)
+            val collected = collectedOf?.invoke(comic.ref)
             ComicCard(
                 comic = comic,
                 readStatus = readStatus,
                 largeTitle = columns == 2,
                 isNew = isNew,
+                statusLine = statusLine,
+                collected = collected,
+                onFavouriteToggle = onFavouriteToggle,
                 onClick = { onComicClick(comic.ref) },
                 onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
             )
@@ -136,6 +151,11 @@ private fun ComicCard(
     largeTitle: Boolean,
     /** 关注流新更新：封面左上角小圆点 */
     isNew: Boolean = false,
+    /** 状态行（书架用）：非空时取代底部日期/点赞行 */
+    statusLine: String? = null,
+    /** 收藏态（书架用）：非 null 时显示可点心形 */
+    collected: Boolean? = null,
+    onFavouriteToggle: ((String) -> Unit)? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -229,35 +249,73 @@ private fun ComicCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 1.dp),
-        ) {
-            if (comic.updatedAt.isNotBlank()) {
-                Text(
-                    text = comic.updatedAt.take(10),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                Spacer(Modifier.weight(1f))
+        if (statusLine != null || collected != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 1.dp),
+            ) {
+                if (statusLine != null) {
+                    Text(
+                        text = statusLine,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (collected != null && onFavouriteToggle != null) {
+                    Icon(
+                        imageVector = if (collected) {
+                            Icons.Filled.Favorite
+                        } else {
+                            Icons.Outlined.FavoriteBorder
+                        },
+                        contentDescription = if (collected) "取消收藏" else "收藏",
+                        tint = if (collected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable(onClick = { onFavouriteToggle(comic.ref) }),
+                    )
+                }
             }
-            if (comic.totalLikes > 0) {
-                Icon(
-                    Icons.Filled.Favorite,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                    modifier = Modifier.size(10.dp),
-                )
-                Text(
-                    text = "${comic.totalLikes}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 2.dp),
-                )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 1.dp),
+            ) {
+                if (comic.updatedAt.isNotBlank()) {
+                    Text(
+                        text = comic.updatedAt.take(10),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (comic.totalLikes > 0) {
+                    Icon(
+                        Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(10.dp),
+                    )
+                    Text(
+                        text = "${comic.totalLikes}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 2.dp),
+                    )
+                }
             }
         }
     }

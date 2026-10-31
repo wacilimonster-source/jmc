@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jmread.core.netconfig.DomainPool
+import com.jmread.core.JmRepository
 import com.jmread.core.scramble.ScrambleCache
 import com.jmread.core.update.UpdateManager
 import com.jmread.data.GridSettings
@@ -219,6 +220,11 @@ fun SettingsScreen(
                 )
             }
 
+            // ── 账号 ────────────────────────────────────────────────
+            if (JmRepository.isLoggedIn) {
+                LibrarySyncSection()
+            }
+
             // ── 通用 ────────────────────────────────────────────────
             SettingsGroup(header = "通用") {
                 UpdateSection()
@@ -244,6 +250,52 @@ fun SettingsScreen(
 
     if (showAbout) {
         AboutDialog(onDismiss = { showAbout = false })
+    }
+}
+
+/** 账号组 · 本地书架 → 云端收藏手动同步（backfill「暂不」后的兜底入口，docs/unified-library-design.md §4.3） */
+@Composable
+private fun LibrarySyncSection() {
+    val scope = rememberCoroutineScope()
+    var showConfirm by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf(false) }
+    var resultText by remember { mutableStateOf<String?>(null) }
+
+    SettingsGroup(header = "账号", supporting = "收藏自动双写本地与云端") {
+        ListItem(
+            headlineContent = { Text("把本地书架同步到云端收藏") },
+            supportingContent = { Text(resultText ?: "仅推送云端缺失的部分，不影响已有收藏") },
+            trailingContent = { ChevronIcon() },
+            modifier = Modifier.clickable(enabled = !running) { showConfirm = true },
+        )
+    }
+
+    if (showConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!running) showConfirm = false },
+            title = { Text("同步本地书架") },
+            text = { Text("把本地书架中云端还没有的作品推送到云端收藏？只推缺失部分，不影响已有收藏。") },
+            confirmButton = {
+                TextButton(enabled = !running, onClick = {
+                    running = true
+                    showConfirm = false
+                    scope.launch {
+                        val (ok, fail) = com.jmread.core.library.LibraryRepository.backfillToCloud()
+                        resultText = if (ok + fail == 0) {
+                            "云端收藏已与本地书架一致"
+                        } else if (fail == 0) {
+                            "已同步 $ok 本到云端收藏"
+                        } else {
+                            "已同步 $ok 本，$fail 本失败（将自动重试）"
+                        }
+                        running = false
+                    }
+                }) { Text("同步") }
+            },
+            dismissButton = {
+                TextButton(enabled = !running, onClick = { showConfirm = false }) { Text("取消") }
+            },
+        )
     }
 }
 
