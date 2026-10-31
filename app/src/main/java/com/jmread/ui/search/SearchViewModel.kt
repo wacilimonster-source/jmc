@@ -33,8 +33,8 @@ enum class SearchDimension(val mainTag: Int, val label: String) {
  */
 class SearchViewModel : ViewModel() {
 
-    /** 官方标签词表（/categories.blocks，标签维度搜索入口） */
-    private val _tags = MutableStateFlow<List<String>>(emptyList())
+    /** 官方标签词表（固定词表，本地读取；标签维度搜索入口） */
+    private val _tags = MutableStateFlow<List<String>>(com.jmread.data.OfficialTags.all)
     val tags: StateFlow<List<String>> = _tags
 
     private val _comics = MutableStateFlow<List<ComicSummary>>(emptyList())
@@ -112,18 +112,9 @@ class SearchViewModel : ViewModel() {
     var hasSearched: Boolean = false
         private set
 
-    /** 加载官方标签词表（失败静默：空列表时 UI 隐藏标签区） */
+    /** 标签词表是固定的（OfficialTags），无需网络请求；保留空实现供界面首次进入调用 */
     fun loadTags() {
-        if (_tags.value.isNotEmpty()) return
-        viewModelScope.launch {
-            try {
-                _tags.value = JmRepository.tags()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // 词表失败忽略
-            }
-        }
+        if (_tags.value.isEmpty()) _tags.value = com.jmread.data.OfficialTags.all
     }
 
     /** 切换搜索维度（综合/作品/作者/标签），立即用当前关键词重搜 */

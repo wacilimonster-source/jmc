@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -22,8 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -44,65 +41,40 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.JmCapabilities
-import com.jmread.core.JmRepository
-import com.jmread.core.TagGroup
 import com.jmread.core.model.ComicSubCategory
-import com.jmread.data.CategorySettings
+import com.jmread.data.OfficialTags
 import com.jmread.ui.browse.BrowseViewModel
 import com.jmread.ui.browse.ComicGridView
 import com.jmread.ui.browse.PaginationBar
 import com.jmread.ui.browse.filterByRead
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
- * 分类 Tab：官方分类 + 官方标签的紧凑单页。
+ * 分类 Tab：官方分类 + 官方标签墙的紧凑单页。
  *
- * 顶级分类、子分类、官方标签都用紧凑 chip，不再用大卡占屏；
- * 置顶标签由用户从官方标签中选择并持久化。
+ * 标签词表是固定的（[OfficialTags]），不再每次进入页面请求 `/categories`；
+ * 点标签进入该标签的作品流（main_tag=3），而不是把它变成置顶。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CategoryScreen(
     onCategoryClick: (String) -> Unit = {},
     onSubcategoryClick: (String, String) -> Unit = { _, _ -> },
-    onComicClick: (String) -> Unit = {},
+    onTagClick: (String) -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
 ) {
     val categories by viewModel.categories.collectAsState()
-    var settings by remember { mutableStateOf(CategorySettings.Settings()) }
-    var tagGroups by remember { mutableStateOf<List<TagGroup>>(emptyList()) }
-    var tagGroupsLoading by remember { mutableStateOf(true) }
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        // 仓库层有内存缓存：同一进程内重复进入分类页不会重复请求。
         viewModel.loadCategories()
-        settings = withContext(Dispatchers.IO) { CategorySettings.get() }
     }
 
-    LaunchedEffect(Unit) {
-        tagGroups = runCatching {
-            withContext(Dispatchers.IO) { JmRepository.tagGroups() }
-        }.getOrDefault(emptyList())
-        tagGroupsLoading = false
-    }
-
-    // 顶级分类保留既有显示/隐藏与拖动排序设置。
-    val topLevelCategories = remember(categories, settings) {
-        val filtered = categories.filter { it.id !in settings.hidden }
-        if (settings.order.isEmpty()) {
-            filtered
-        } else {
-            val orderMap = settings.order.withIndex().associate { (index, id) -> id to index }
-            filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
-        }
-    }
+    val topLevelCategories = categories
 
     // 显示层去重：只合并「同名顶级分类/同名子分类」，不把 slug 相同但语义不同的入口合并
     // （顶级 Cosplay 与 其他類/角色扮演 是两个内容位，不能互删）。
@@ -130,33 +102,10 @@ fun CategoryScreen(
         }
     }
 
-    fun togglePinnedTag(tag: String) {
-        val next = CategorySettings.togglePinnedTag(settings, tag)
-        settings = next
-        CategorySettings.save(next)
-    }
-
-    if (showSettings) {
-        CategoryReorderDialog(
-            categories = categories,
-            currentSettings = settings,
-            onSettingsChange = { newSettings ->
-                settings = newSettings
-                CategorySettings.save(newSettings)
-            },
-            onDismiss = { showSettings = false },
-        )
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("分类") },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "分类设置")
-                    }
-                },
                 windowInsets = WindowInsets(0, 0),
             )
         },
@@ -168,34 +117,6 @@ fun CategoryScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp),
         ) {
-            // ── 置顶标签 ──────────────────────────────────────────────
-            CategorySectionHead(title = "置顶标签", count = "${settings.pinnedTags.size} 个")
-            if (settings.pinnedTags.isEmpty()) {
-                CategoryHint("点击下方标签置顶，最多 ${CategorySettings.MAX_PINNED_TAGS} 个")
-            } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    settings.pinnedTags.forEach { tag ->
-                        FilterChip(
-                            selected = true,
-                            onClick = { togglePinnedTag(tag) },
-                            label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            trailingIcon = {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "取消置顶 $tag",
-                                    modifier = Modifier.size(15.dp),
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(Modifier.padding(vertical = 10.dp))
-
             // ── 分类 ──────────────────────────────────────────────────
             CategorySectionHead(
                 title = "分类",
@@ -206,7 +127,7 @@ fun CategoryScreen(
                 },
             )
             if (topLevelCategories.isEmpty()) {
-                CategoryHint(if (categories.isEmpty()) "分类加载中…" else "所有分类已隐藏")
+                CategoryHint(if (categories.isEmpty()) "分类加载中…" else "暂无分类")
             } else {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -247,40 +168,33 @@ fun CategoryScreen(
 
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-            // ── 官方标签 ──────────────────────────────────────────────
+            // ── 官方标签墙（固定词表，点标签 = 该标签的作品流）───────────
             CategorySectionHead(
                 title = "官方标签",
-                count = if (tagGroups.isEmpty()) {
-                    null
-                } else {
-                    "${tagGroups.size} 组 · ${tagGroups.sumOf { it.tags.size }} 个"
-                },
+                count = "${OfficialTags.groups.size} 组 · ${OfficialTags.all.size} 个",
             )
-            when {
-                tagGroups.isEmpty() && tagGroupsLoading -> CategoryHint("标签加载中…")
-                tagGroups.isEmpty() -> CategoryHint("暂无官方标签")
-                else -> tagGroups.forEachIndexed { index, group ->
-                    if (index > 0) {
-                        HorizontalDivider(
-                            Modifier.padding(vertical = 9.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                        )
-                    }
-                    CategoryGroupTitle(
-                        title = group.title,
-                        count = "${group.tags.size} 个",
+            CategoryHint("点击标签查看该标签下的作品")
+            OfficialTags.groups.forEachIndexed { index, group ->
+                if (index > 0) {
+                    HorizontalDivider(
+                        Modifier.padding(vertical = 9.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                     )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp),
-                    ) {
-                        items(group.tags, key = { "${group.title}|$it" }) { tag ->
-                            FilterChip(
-                                selected = tag in settings.pinnedTags,
-                                onClick = { togglePinnedTag(tag) },
-                                label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
-                        }
+                }
+                CategoryGroupTitle(
+                    title = group.title,
+                    count = "${group.tags.size} 个",
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    group.tags.forEach { tag ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { onTagClick(tag) },
+                            label = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
                     }
                 }
             }

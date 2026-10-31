@@ -41,7 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import com.jmread.core.JmRepository
+import com.jmread.core.JmCapabilities
 import com.jmread.data.FollowItem
 import com.jmread.data.FollowSettings
 
@@ -180,13 +180,8 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
     var input by remember { mutableStateOf("") }
     var selectedTag by remember { mutableStateOf<String?>(null) }
     var showTagSheet by remember { mutableStateOf(false) }
-    var tagList by remember { mutableStateOf<List<String>>(emptyList()) }
-
-    LaunchedEffect(Unit) {
-        // 对话框关闭时取消加载：不能把取消当成"词表为空"
-        tagList = com.jmread.core.runCatchingCancellable { JmRepository.tags() }
-            .getOrDefault(emptyList())
-    }
+    // 官方标签词表固定在本地，无需请求
+    val tagList = com.jmread.data.OfficialTags.all
 
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -338,7 +338,7 @@ class ReaderViewModel : ViewModel() {
             loader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
-                    .size(coil.size.Size(width = Int.MAX_VALUE, height = cap))
+                    .size(coil.size.Size(width = MAX_DECODE_WIDTH_PX, height = cap))
                     .memoryCacheKey(cacheKey)
                     .diskCacheKey(cacheKey)
                     .build()

@@ -51,25 +51,17 @@ object ImageScrambler {
     /** 判定 + 条件还原。未命中打乱时原样返回 [bitmap]（不复制位图）。
      *  [force]：1=强制还原 / -1=强制原样 / null=自动判定（写入判定缓存） */
     fun processIfNeeded(url: String, bitmap: Bitmap, force: Int? = null): Bitmap {
-        if (!isPhotoUrl(url) || bitmap.width <= 0 || bitmap.height < ScrambleDetector.candidateSplits.last()) {
-            return bitmap
-        }
-        val key = verdictKey(url)
-        if (force == null && ScrambleCache.get(key) == false) return bitmap
-        if (force == -1) return bitmap
+        if (!isPhotoUrl(url) || bitmap.width <= 0 || force == -1) return bitmap
+        // 条数由 id + 文件名确定（见 JmScramble）；#m1 强制还原时同样按该条数，规则不适用的图回退 10 条
+        val ruleSegments = JmScramble.segmentCountForUrl(url)
+        val segments = if (force == 1 && ruleSegments <= 1) 10 else ruleSegments
+        if (force == null) ScrambleCache.put(verdictKey(url), segments > 1)
+        if (segments <= 1 || bitmap.height < segments) return bitmap
         val w = bitmap.width
         val h = bitmap.height
         val pixels = IntArray(w * h)
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-        if (force == 1) {
-            val restored = ScrambleDetector.restore(pixels, w, h, 10)
-            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            out.setPixels(restored, 0, w, 0, 0, w, h)
-            return out
-        }
-        val (restored, scrambled) = ScrambleDetector.detectAndRestore(pixels, w, h)
-        ScrambleCache.put(key, scrambled)
-        if (!scrambled) return bitmap
+        val restored = JmScramble.restore(pixels, w, h, segments)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         out.setPixels(restored, 0, w, 0, 0, w, h)
         return out
@@ -82,8 +74,7 @@ object ImageScrambler {
     fun processBytesIfNeeded(url: String, bytes: ByteArray, force: Int? = null): ByteArray {
         if (!isPhotoUrl(url)) return bytes
         if (force == -1) return bytes
-        val key = verdictKey(url)
-        if (force == null && ScrambleCache.get(key) == false) return bytes
+        if (force == null && JmScramble.segmentCountForUrl(url) <= 1) return bytes
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
         val processed = processIfNeeded(url, bmp, force)
         if (processed === bmp) {

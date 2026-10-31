@@ -36,6 +36,7 @@ import com.jmread.data.SourcePrefs
 import com.jmread.ui.author.AuthorComicsScreen
 import com.jmread.ui.category.CategoryComicsScreen
 import com.jmread.ui.category.CategoryScreen
+import com.jmread.ui.category.TagScreen
 import com.jmread.ui.detail.ComicDetailScreen
 import com.jmread.ui.home.HomeScreen
 import com.jmread.ui.login.LoginScreen
@@ -212,8 +213,8 @@ fun MainScreen() {
                             "category/${Uri.encode(categoryId)}?sub=${Uri.encode(subCategory)}",
                         )
                     },
-                    onComicClick = { id ->
-                        navController.navigate(comicRoute(id))
+                    onTagClick = { tag ->
+                        navController.navigate("tag/${Uri.encode(tag)}")
                     },
                 )
             }
@@ -311,6 +312,21 @@ fun MainScreen() {
                 CategoryComicsScreen(
                     categoryId = categoryId,
                     subCategory = entry.arguments?.getString("sub"),
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate(comicRoute(id))
+                    },
+                )
+            }
+            composable(
+                "tag/{tag}",
+                arguments = listOf(
+                    navArgument("tag") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val tag = entry.arguments?.getString("tag") ?: return@composable
+                TagScreen(
+                    tag = tag,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))

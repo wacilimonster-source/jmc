@@ -49,7 +49,7 @@ class JmImageFetcherRouteTest {
     @Test
     fun `章节图缓存键带 de 后缀`() {
         val url = "https://cdn-msp.jmapiproxy1.cc/media/photos/254931/00001.webp"
-        assertEquals("$url#de", jmImageCacheKey(url))
+        assertEquals("$url#de2", jmImageCacheKey(url))
     }
 
     @Test

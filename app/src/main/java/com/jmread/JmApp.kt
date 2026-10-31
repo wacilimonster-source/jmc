@@ -14,7 +14,6 @@ import com.jmread.core.scramble.JmUrlKeyer
 import com.jmread.core.scramble.ScrambleCache
 import com.jmread.data.AuthorFavourites
 import com.jmread.data.Bookmarks
-import com.jmread.data.CategorySettings
 import com.jmread.data.FollowFeedCache
 import com.jmread.data.FollowSettings
 import com.jmread.data.GridSettings
@@ -54,7 +53,6 @@ class JmApp : Application() {
         // 统一书架：装配并集条目流；已登录则启动时 flush 一次收藏同步队列
         com.jmread.core.library.LibraryRepository.init()
         appScope.launch { com.jmread.core.library.LibraryRepository.flushPendingSync() }
-        CategorySettings.init(this)
         AuthorFavourites.init(this)
         FollowSettings.init(this)
         FollowFeedCache.init(this)

@@ -45,7 +45,8 @@ internal fun jmImageCacheKey(url: String): String = when {
     // 手动覆盖请求自带独立后缀，直接作 key（与自动判定结果缓存隔离）
     url.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) ||
         url.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> url
-    ImageScrambler.isPhotoUrl(url) -> "$url#de"
+    // #de2：旧版 #de 缓存里存的是按错误条数「还原」过的字节，换键让它们自然失效
+    ImageScrambler.isPhotoUrl(url) -> "$url#de2"
     else -> url
 }
 

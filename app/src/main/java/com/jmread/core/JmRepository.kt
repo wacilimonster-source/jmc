@@ -21,7 +21,6 @@ import com.jmread.core.model.pickNewArrivals
 import com.jmread.data.SecureAccountStore
 import com.jmread.data.SourcePrefs
 import com.jmread.network.JmAlbumSummary
-import com.jmread.network.JmCategoriesResponse
 import com.jmread.network.JmClient
 import com.jmread.network.JmCrypto
 import com.jmread.network.JmException
@@ -57,6 +56,9 @@ object JmRepository {
     /** 云端收藏 id 集合缓存：(探测时刻, ids)；收藏开关成功后置 null 作废 */
     @Volatile private var favIdsCache: Pair<Long, Set<String>>? = null
     private const val FAV_IDS_TTL_MS = 5 * 60 * 1000L
+
+    /** 分类树缓存：站点结构固定，进程内复用（分类页/分类详情共用） */
+    @Volatile private var categoriesCache: List<ComicCategory>? = null
 
     /**
      * 收藏状态版本：收藏/取消收藏成功、登录/退出后递增。
@@ -135,11 +137,20 @@ object JmRepository {
         runCatching { JmClient.refreshSetting(force = true) }
     }
 
-    // ---------- 分类 / 标签 ----------
+    // ---------- 分类 ----------
 
-    suspend fun categories(): List<ComicCategory> {
-        val resp = runCatching { JmClient.categories() }.getOrDefault(JmCategoriesResponse())
-        return resp.data.categories.map {
+    /**
+     * 分类树（进程内缓存）。
+     *
+     * 顶级分类与子分类是站点固定结构，重复进入分类页/分类详情不应重复请求；
+     * 请求失败时回退到已有缓存，首次失败返回空列表（UI 显示加载中/空态）。
+     */
+    suspend fun categories(force: Boolean = false): List<ComicCategory> {
+        val cached = categoriesCache
+        if (!force && cached != null) return cached
+        val resp = runCatching { JmClient.categories() }.getOrNull()
+            ?: return cached ?: emptyList()
+        val list = resp.data.categories.map {
             ComicCategory(
                 id = it.slug.ifBlank { it.id },
                 title = it.name.ifBlank { it.id },
@@ -148,28 +159,9 @@ object JmRepository {
                 subCategories = it.subCategories.map { s -> ComicSubCategory(s.slug, s.name) },
             )
         }
+        categoriesCache = list
+        return list
     }
-
-    /** 完整分类数据：大类 + 二级分类 + blocks 官方标签（标签墙） */
-    suspend fun categoryTree(): List<JmCategoryNode> {
-        val resp = runCatching { JmClient.categories() }.getOrDefault(JmCategoriesResponse())
-        return resp.data.categories.map { c ->
-            JmCategoryNode(
-                id = c.slug.ifBlank { c.id },
-                title = c.name.ifBlank { c.id },
-                totalCount = c.totalAlbums,
-                subCategories = c.subCategories.map { JmSubCategoryNode(it.slug, it.name) },
-            )
-        }
-    }
-
-    /** 官方标签墙：4 组 43 个标签（/categories.blocks，实测可用） */
-    suspend fun tagGroups(): List<TagGroup> {
-        val resp = runCatching { JmClient.categories() }.getOrDefault(JmCategoriesResponse())
-        return resp.data.blocks.map { TagGroup(it.title, it.content) }
-    }
-
-    suspend fun tags(): List<String> = tagGroups().flatMap { it.tags }
 
     suspend fun hotWords(): List<String> = emptyList()
 
@@ -647,18 +639,6 @@ object JmRepository {
 
     private fun String.toLongSafe(): Long = trim().toLongOrNull() ?: 0L
 }
-
-/** 完整分类节点（分类页树） */
-data class JmCategoryNode(
-    val id: String,
-    val title: String,
-    val totalCount: Int,
-    val subCategories: List<JmSubCategoryNode>,
-)
-
-data class JmSubCategoryNode(val slug: String, val name: String)
-
-data class TagGroup(val title: String, val tags: List<String>)
 
 /** 推荐本本频道 block（/promote） */
 data class PromoteBlock(

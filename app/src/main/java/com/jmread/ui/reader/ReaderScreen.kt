@@ -180,17 +180,27 @@ fun ReaderScreen(
 
     // ── 滚动流：页 → 行 平铺（长图分割） ──────────────────────────────────
     val sliceCounts = remember { mutableStateMapOf<Int, Int>() }
+    // 每页实测高宽比：同页所有切片共用同一个比例，否则先加载的切片用真值、
+    // 后组合的切片用估算值，相邻切片按不同比例摆放就会内容错位重叠。
+    val pageRatios = remember { mutableStateMapOf<Int, Float>() }
     LaunchedEffect(scrollMode) {
-        if (!scrollMode) sliceCounts.clear()
+        if (!scrollMode) {
+            sliceCounts.clear()
+            pageRatios.clear()
+        }
     }
     // 切章必须以 VM 的当前章节为准清空并预置切片数缓存：
     // 路由 order 在切章后不变，按它做 key 会让上一章的切片数污染新章的行换算；
     // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早
     LaunchedEffect(vmOrder, pages.size) {
         sliceCounts.clear()
+        pageRatios.clear()
         if (pages.isNotEmpty()) {
             val cached = com.jmread.data.WebtoonSliceCache.load(ref, vmOrder, context)
-            if (cached.isNotEmpty()) sliceCounts.putAll(cached)
+            for ((page, info) in cached) {
+                sliceCounts[page] = info.count
+                info.ratio?.let { pageRatios[page] = it }
+            }
         }
     }
     val rows: List<Pair<Int, Int>> = if (scrollMode) {
@@ -548,21 +558,37 @@ fun ReaderScreen(
                             },
                         ) { index ->
                             val (pageIndex, sliceIndex) = rows[index]
+                            // 组合期快照章号：旧章切片的解析回调可能在切章后的亚帧窗口
+                            // 才执行，此时 vmOrder 已是新章号，跨章计数不能写进新章
+                            val orderSnapshot = vmOrder
                             WebtoonSplitPage(
                                 pageIndex = pageIndex,
                                 imageUrl = displayUrl(pageIndex),
                                 sliceIndex = sliceIndex,
                                 sliceCount = sliceCounts[pageIndex] ?: 1,
+                                measuredRatio = pageRatios[pageIndex],
                                 viewportAspect = viewportAspect,
                                 splitEnabled = true,
-                                isPrimary = sliceIndex == 0,
-                                onSliceCountResolved = { p, n ->
-                                    sliceCounts[p] = n
-                                    // 写入持久缓存：下次进入本章恢复定位可直接按真实行号换算
-                                    if (n > 1) {
-                                        com.jmread.data.WebtoonSliceCache.putAll(
-                                            context, ref, vmOrder, mapOf(p to n),
-                                        )
+                                onPageMeasured = { p, ratio, n ->
+                                    if (orderSnapshot == vmOrder) {
+                                        val old = pageRatios[p]
+                                        // 同一 URL 不同解码尺寸测出的比例有千分之几的取整差，
+                                        // 视为同值，避免同页切片被反复重排
+                                        val prevRatio = if (old != null &&
+                                            kotlin.math.abs(old - ratio) <= old * 0.005f
+                                        ) ratio else old
+                                        val prevCount = sliceCounts[p]
+                                        if (prevRatio != ratio) pageRatios[p] = ratio
+                                        if (prevCount != n) sliceCounts[p] = n
+                                        // 写入持久缓存：下次进入本章可直接按真实行号换算，
+                                        // 首帧也能按真实比例铺开（不再有估算高度阶段）。
+                                        // 同页多个切片会重复上报，值未变化时不重复写盘
+                                        if (n > 1 && (prevRatio != ratio || prevCount != n)) {
+                                            com.jmread.data.WebtoonSliceCache.putAll(
+                                                context, ref, orderSnapshot,
+                                                mapOf(p to com.jmread.data.SliceInfo(n, ratio)),
+                                            )
+                                        }
                                     }
                                 },
                             )
