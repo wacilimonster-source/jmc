@@ -3,6 +3,7 @@ package com.jmread.ui.browse
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +37,9 @@ import androidx.compose.ui.unit.dp
  * 页码分页条：左箭头 | 页码（居中块状）| 右箭头 | 跳页按钮
  * 数字在矩形块内居中；点跳页弹窗输入页码直达。
  *
+ * [summary] 为可选的左侧摘要（如「共 320 条」）：搜索结果页把条数与分页合并到同一行，
+ * 省掉单独的结果数文本行。只有一页时不渲染翻页控件，但仍可显示摘要。
+ *
  * progressMode = true：筛选激活时的加载进度模式——页码可点范围为已加载页
  * （loadedPages），后台每加载完一页自动扩展范围；加载未完成时右箭头尾部显示
  * "x / N 页"进度 + 转圈，全部加载完切换回完整跳页按钮（跳页为客户端切片）。
@@ -48,8 +52,9 @@ fun PaginationBar(
     modifier: Modifier = Modifier,
     progressMode: Boolean = false,
     loadedPages: Int = totalPages,
+    summary: String? = null,
 ) {
-    if (totalPages <= 1) return
+    if (totalPages <= 1 && summary.isNullOrBlank()) return
     var showJump by remember { mutableStateOf(false) }
     var jumpInput by remember { mutableStateOf("") }
 
@@ -62,6 +67,19 @@ fun PaginationBar(
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (!summary.isNullOrBlank()) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            if (totalPages > 1) Spacer(Modifier.width(4.dp))
+        }
+        if (totalPages <= 1) {
+            Spacer(Modifier.weight(1f))
+            return@Row
+        }
         IconButton(
             onClick = { onPageChange((currentPage - 1).coerceAtLeast(1)) },
             enabled = currentPage > 1,

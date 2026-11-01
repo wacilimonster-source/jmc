@@ -540,8 +540,8 @@ object JmRepository {
      * 推荐本本（/promote 频道 block）。
      * ⚠ 内容会轮换、可能返回空 —— 调用方（UI）必须容空，不作为首屏承诺内容。
      */
-    suspend fun promoteBlocks(): List<PromoteBlock> {
-        val resp = runCatching { JmClient.promote() }.getOrNull() ?: return emptyList()
+    suspend fun promoteBlocks(page: Int = 1): List<PromoteBlock> {
+        val resp = runCatching { JmClient.promote(page) }.getOrNull() ?: return emptyList()
         return resp.data.list.map { block ->
             PromoteBlock(
                 id = block.id,

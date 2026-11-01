@@ -3,12 +3,53 @@ package com.jmread.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.JmRepository
+import com.jmread.core.PromoteBlock
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.RankTab
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+/** 排行榜下方展开的内容分区（/promote 的频道 block） */
+data class HomePromoteSection(
+    val key: String,
+    val title: String,
+    val comics: List<ComicSummary>,
+)
+
+/** 每周必看最新一期（只取第一页；完整期数切换走独立页） */
+data class HomeWeeklySection(
+    val label: String,
+    val comics: List<ComicSummary>,
+)
+
+/**
+ * 首页展开分区里不需要的 promote block（服务端「连载更新」运营位）。
+ * 接口按语言返回简/繁两种标题写法（实机为繁体「連載更新」），两种都要匹配。
+ */
+private val HIDDEN_PROMOTE_BLOCK_KEYWORDS = listOf("连载更新", "連載更新")
+
+/**
+ * /promote block → 首页展开分区。
+ *
+ * 空 block 不占位；「连载更新」运营位按产品要求隐藏；
+ * 线上标题带「→右滑看更多→」这类排版提示，展开成网格后无意义，截断保留主标题。
+ */
+internal fun homePromoteSections(blocks: List<PromoteBlock>): List<HomePromoteSection> =
+    blocks
+        .filter { block ->
+            block.comics.isNotEmpty() &&
+                HIDDEN_PROMOTE_BLOCK_KEYWORDS.none { block.title.contains(it) }
+        }
+        .map { block ->
+            HomePromoteSection(
+                key = block.id,
+                title = block.title.substringBefore("→").trim().ifBlank { "推荐" },
+                comics = block.comics,
+            )
+        }
 
 /** 排行榜数据过期阈值：回前台时超过该时长则静默重拉 */
 private const val RANK_REFRESH_TTL_MS = 10 * 60 * 1000L
@@ -129,6 +170,65 @@ class HomeViewModel : ViewModel() {
             } finally {
                 _randomLoading.value = false
             }
+        }
+    }
+
+    // ── 排行榜下方展开分区：/promote 频道 block + 每周必看最新一期 ──────────
+    // 首页不再用 chips 逐页跳转，而是把内容直接铺在榜单下方；
+    // 「连载更新」运营位按产品要求隐藏，其余 block 原样展开。
+
+    private val _promoteSections = MutableStateFlow<List<HomePromoteSection>>(emptyList())
+    val promoteSections: StateFlow<List<HomePromoteSection>> = _promoteSections.asStateFlow()
+
+    private val _weeklySection = MutableStateFlow<HomeWeeklySection?>(null)
+    val weeklySection: StateFlow<HomeWeeklySection?> = _weeklySection.asStateFlow()
+
+    /** 分区刷新指示（分区与榜单档位同级切换，下拉刷新时各自显示进度） */
+    private val _sectionsLoading = MutableStateFlow(false)
+    val sectionsLoading: StateFlow<Boolean> = _sectionsLoading.asStateFlow()
+
+    private var promoteJob: Job? = null
+    private var weeklyJob: Job? = null
+
+    fun ensureSectionsLoaded() {
+        if (_promoteSections.value.isEmpty()) refreshPromoteSections()
+        if (_weeklySection.value == null) refreshWeeklySection()
+    }
+
+    fun refreshSections() {
+        refreshPromoteSections()
+        refreshWeeklySection()
+    }
+
+    /** /promote 内容会轮换且可能为空：失败保留旧分区，不阻塞榜单 */
+    fun refreshPromoteSections() {
+        if (promoteJob?.isActive == true) return
+        _sectionsLoading.value = true
+        promoteJob = viewModelScope.launch {
+            try {
+                val blocks = runCatching { JmRepository.promoteBlocks() }.getOrDefault(emptyList())
+                if (blocks.isEmpty()) return@launch
+                _promoteSections.value = homePromoteSections(blocks)
+            } finally {
+                _sectionsLoading.value = false
+            }
+        }
+    }
+
+    /** 每周必看只取最新一期第一页；期数切换仍由独立页承接 */
+    fun refreshWeeklySection() {
+        if (weeklyJob?.isActive == true) return
+        weeklyJob = viewModelScope.launch {
+            val section = runCatching {
+                val period = JmRepository.weeklyPeriods().firstOrNull()
+                    ?: return@runCatching null
+                val content = JmRepository.weeklyContent(period.id, 1)
+                HomeWeeklySection(
+                    label = period.label.ifBlank { "第 ${period.id} 期" },
+                    comics = content.items,
+                )
+            }.getOrNull()
+            if (section != null && section.comics.isNotEmpty()) _weeklySection.value = section
         }
     }
 

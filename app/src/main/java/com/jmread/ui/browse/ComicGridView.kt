@@ -142,6 +142,25 @@ fun ComicGridView(
     }
 }
 
+/** 单张漫画卡片：供需要与其它区块混排的 LazyGrid 复用（首页排行榜下方的推荐分区） */
+@Composable
+fun ComicGridItem(
+    comic: ComicSummary,
+    columns: Int,
+    onComicClick: (String) -> Unit,
+) {
+    val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
+    val readStatus = remember(comic.ref, statusVersion) {
+        com.jmread.data.ReaderStatus.of(comic.ref)
+    }
+    ComicCard(
+        comic = comic,
+        readStatus = readStatus,
+        largeTitle = columns == 2,
+        onClick = { onComicClick(comic.ref) },
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComicCard(

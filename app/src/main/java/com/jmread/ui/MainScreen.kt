@@ -156,10 +156,6 @@ fun MainScreen() {
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
-                    onOpenPromote = { navController.navigate("promote") },
-                    onOpenChannel = { id ->
-                        navController.navigate("channel/${Uri.encode(id)}")
-                    },
                     onOpenWeekly = { navController.navigate("weekly") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
                 )

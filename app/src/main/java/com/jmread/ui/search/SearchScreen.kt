@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -207,13 +208,14 @@ fun SearchScreen(
             filterPage = 1
             listState.requestScrollToItem(0)
         }
-        // 四维 Tab（综合/作品/作者/标签）：main_tag 实测各有独立结果集与真实 total
+        // 维度 + 排序 + 阅读筛选合并成一行：搜索结果页纵向空间优先留给网格，
+        // 维度不再单独占一行（「综合」与排序之间用竖线分组）。
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             SearchDimension.entries.forEach { d ->
-                item(key = d.name) {
+                item(key = "dim:${d.name}") {
                     FilterChip(
                         selected = dimension == d,
                         onClick = {
@@ -225,14 +227,18 @@ fun SearchScreen(
                     )
                 }
             }
-        }
-        // 排序：读能力声明（本源无「旧到新」，不出现该选项）
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+            item(key = "dim-sort-divider") {
+                Box(Modifier.height(40.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "|",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+            }
+            // 排序：读能力声明（本源无「旧到新」，不出现该选项）
             com.jmread.core.JmCapabilities.supportedSorts.forEach { s ->
-                item(key = s.name) {
+                item(key = "sort:${s.name}") {
                     FilterChip(
                         selected = currentSort == s,
                         onClick = { onSortChange(s) },
@@ -241,7 +247,7 @@ fun SearchScreen(
                 }
             }
             com.jmread.ui.browse.readFilterOptions.forEach { (f, label) ->
-                item {
+                item(key = "read:${f.name}") {
                     FilterChip(
                         selected = readFilter == f,
                         onClick = {
@@ -284,20 +290,24 @@ fun SearchScreen(
             // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻。
             // 提示与历史从上往下排，不整块居中：搜索页常有大片空白，居中会显得提示“悬空”。
             Column(Modifier.weight(1f).fillMaxWidth()) {
-                Text(
-                    text = when {
-                        loading -> "搜索中..."
-                        searchError != null -> "搜索失败：$searchError"
-                        keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
-                        readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
-                        else -> "没有更多结果"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                )
+                // 空关键词不重复提示（输入框占位已经说明怎么搜），把纵向空间留给搜索历史
+                val emptyHint = when {
+                    loading -> "搜索中..."
+                    searchError != null -> "搜索失败：$searchError"
+                    keyword.isBlank() -> null
+                    readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                    else -> "没有更多结果"
+                }
+                if (emptyHint != null) {
+                    Text(
+                        text = emptyHint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
                 // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
                 if (searchError != null && !loading && keyword.isNotBlank()) {
                     Text(
@@ -357,14 +367,6 @@ fun SearchScreen(
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                if (total > 0 && readFilter == com.jmread.ui.browse.ReadFilter.ALL) {
-                    Text(
-                        text = "共 $total 条结果",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                    )
-                }
                 ComicGridView(
                     comics = displayComics,
                     loading = loading,
@@ -390,6 +392,12 @@ fun SearchScreen(
                     loadedPages = (comics.size + 19) / 20,
                     onPageChange = onBarPageChange,
                     progressMode = readFilter != com.jmread.ui.browse.ReadFilter.ALL,
+                    // 条数与分页合并到同一行，省掉网格上方的结果数文本行
+                    summary = if (total > 0 && readFilter == com.jmread.ui.browse.ReadFilter.ALL) {
+                        "共 $total 条"
+                    } else {
+                        null
+                    },
                 )
             }
         }
