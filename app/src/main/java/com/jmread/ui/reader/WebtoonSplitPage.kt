@@ -61,6 +61,8 @@ fun WebtoonSplitPage(
     viewportAspect: Float,
     splitEnabled: Boolean,
     onPageMeasured: (pageIndex: Int, ratio: Float, count: Int) -> Unit,
+    /** 该切片实际渲染成功（用于 P1-05 末页已读判定；预取/失败占位不触发） */
+    onLoaded: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -95,10 +97,27 @@ fun WebtoonSplitPage(
                 width = MAX_DECODE_WIDTH_PX,
                 height = decodeHeightCap,
             ))
+            // 阅读器不参与列表封面淡入（P2-01）；翻页等待与双图过渡不应叠加
+            .crossfade(false)
             .build(),
     )
     // Coil 2.7 的 painter.state 是快照属性（getter 读内部 mutableStateOf），读取即订阅重组
     val state = painter.state
+
+    // P1-05：只有真正渲染成功的切片才上报“已加载”，加载中/失败占位都不算
+    LaunchedEffect(state) {
+        when (state) {
+            is AsyncImagePainter.State.Success -> onLoaded()
+            is AsyncImagePainter.State.Error -> {
+                val t = (state as AsyncImagePainter.State.Error).result.throwable
+                android.util.Log.e(
+                    "WebtoonPage",
+                    "page=${pageIndex + 1} slice=$sliceIndex ${t.javaClass.simpleName}: ${t.message}",
+                )
+            }
+            else -> {}
+        }
+    }
 
     // 图片"高/宽"比：优先用外层按页共享的实测值（同页所有切片一致），
     // 其次是本切片画师已解出的真实尺寸（图片已在内存/磁盘缓存时首帧即准确），
@@ -243,26 +262,4 @@ internal fun computeSliceCount(imageHeightRatio: Float, viewportAspect: Float): 
     if (imageHeightRatio <= 0f || viewportAspect <= 0f) return 1
     val raw = imageHeightRatio / viewportAspect
     return if (raw <= 1.4f) 1 else ceil(raw).toInt().coerceIn(1, 6)
-}
-
-/** 单张位图解码高度上限（px）：1080 宽 × 8192 高 ≈ 35MB */
-private const val MAX_DECODE_HEIGHT_PX = 8192
-
-/** 单张位图解码宽度上限（px）：超宽长图必须同样封顶，否则会解码成巨图触发 Canvas 上限 */
-internal const val MAX_DECODE_WIDTH_PX = 2160
-
-/**
- * 按设备内存等级自适应解码上限：
- * - 大内存设备（memoryClass ≥ 256MB）维持 8192，长图切片清晰度最优；
- * - 小内存设备降到 4096（约 17MB/张），显著降低缓存驱逐导致的重复解码与 GC 抖动。
- */
-private fun maxDecodeHeightPx(context: android.content.Context): Int {
-    val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
-        as? android.app.ActivityManager
-    val memClass = am?.memoryClass ?: 192
-    return when {
-        memClass >= 256 -> MAX_DECODE_HEIGHT_PX
-        memClass >= 128 -> 6144
-        else -> 4096
-    }
 }

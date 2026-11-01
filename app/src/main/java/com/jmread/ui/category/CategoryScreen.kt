@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.JmCapabilities
 import com.jmread.core.model.ComicSubCategory
+import com.jmread.data.CategorySettings
+import com.jmread.data.applyCategorySettings
 import com.jmread.data.OfficialTags
 import com.jmread.ui.browse.BrowseViewModel
 import com.jmread.ui.browse.ComicGridView
@@ -68,13 +71,17 @@ fun CategoryScreen(
 ) {
     val categories by viewModel.categories.collectAsState()
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var categorySettings by remember { mutableStateOf(CategorySettings.get()) }
+    var showSettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // 仓库层有内存缓存：同一进程内重复进入分类页不会重复请求。
         viewModel.loadCategories()
     }
 
-    val topLevelCategories = categories
+    val topLevelCategories = remember(categories, categorySettings) {
+        applyCategorySettings(categories, categorySettings)
+    }
 
     // 显示层去重：只合并「同名顶级分类/同名子分类」，不把 slug 相同但语义不同的入口合并
     // （顶级 Cosplay 与 其他類/角色扮演 是两个内容位，不能互删）。
@@ -106,6 +113,13 @@ fun CategoryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("分类") },
+                actions = {
+                    if (categories.isNotEmpty()) {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Filled.Tune, contentDescription = "分类排序与显示")
+                        }
+                    }
+                },
                 windowInsets = WindowInsets(0, 0),
             )
         },
@@ -201,6 +215,19 @@ fun CategoryScreen(
 
             Spacer(Modifier.height(14.dp))
         }
+    }
+
+    if (showSettings) {
+        CategoryReorderDialog(
+            categories = categories,
+            initial = categorySettings,
+            onDismiss = { showSettings = false },
+            onSave = { settings ->
+                CategorySettings.save(settings)
+                categorySettings = settings
+                showSettings = false
+            },
+        )
     }
 }
 

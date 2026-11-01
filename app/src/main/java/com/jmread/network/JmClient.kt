@@ -287,6 +287,51 @@ object JmClient {
         json.decodeFromString(execute("/categories/filter?page=$page&o=$order&t=a"))
 
     /**
+     * 可疑空结果换域重试次数。
+     *
+     * 背景（2026-11-02 实测）：同一关键词、同一排序，服务端偶发返回 HTTP 200 + total=0 +
+     * 空列表（24 次压测命中 1 次），而其他镜像同一时刻有数据。单关键词搜索此前只对
+     * 网络异常/5xx 换域，会把这种「假空」直接当成无结果展示给用户。
+     */
+    internal const val EMPTY_SEARCH_RETRIES = 2
+
+    /**
+     * 综合维度 + 非空关键词才做空结果重试。
+     *
+     * 作品/作者/标签维度的 0 条是常态（如「回流」在作品维度本来就无结果），重试纯属浪费请求。
+     */
+    internal fun shouldRetryEmptySearch(keyword: String, mainTag: Int): Boolean =
+        mainTag == 0 && keyword.isNotBlank()
+
+    /**
+     * 空结果时换线路重试，最多 [maxRetries] 次。
+     *
+     * 重试本身失败时保留原来的空响应、不升级成异常：镜像抽风叠加一次重试网络故障时，
+     * 展示「没有结果」比直接报「搜索失败」更接近事实（首次请求是成功的）。
+     */
+    internal suspend fun <T> retryOnSuspiciousEmpty(
+        maxRetries: Int,
+        fetch: suspend () -> T,
+        isEmpty: (T) -> Boolean,
+        rotate: () -> Unit,
+    ): T {
+        var result = fetch()
+        var attempts = 0
+        while (attempts < maxRetries && isEmpty(result)) {
+            attempts++
+            rotate()
+            result = try {
+                fetch()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                result
+            }
+        }
+        return result
+    }
+
+    /**
      * 搜索：main_tag 0 综合 / 1 作品 / 2 作者 / 3 标签（实测各有独立结果与真实 total）。
      * c= 分类过滤实测生效。
      */
@@ -304,7 +349,12 @@ object JmClient {
             append("&t=a")
             if (!category.isNullOrBlank()) append("&c=").append(URLEncoder.encode(category, "UTF-8"))
         }
-        return fetchList(q, sort)
+        return retryOnSuspiciousEmpty(
+            maxRetries = if (shouldRetryEmptySearch(keyword, mainTag)) EMPTY_SEARCH_RETRIES else 0,
+            fetch = { fetchList(q, sort) },
+            isEmpty = { it.data.items.isEmpty() },
+            rotate = { DomainPool.rotate() },
+        )
     }
 
     /** 详情：/album?id=（扁平结构，series 即章节列表） */

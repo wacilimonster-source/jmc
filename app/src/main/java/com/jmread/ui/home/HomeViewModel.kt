@@ -6,6 +6,7 @@ import com.jmread.core.JmRepository
 import com.jmread.core.PromoteBlock
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.RankTab
+import com.jmread.data.RankCache
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -85,9 +86,11 @@ class HomeViewModel : ViewModel() {
         if (rankTabsProbed) return
         rankTabsProbed = true
         viewModelScope.launch {
-            val tabs = runCatching { JmRepository.availableRankTabs() }
-                .getOrDefault(RankTab.optimistic)
-            if (tabs.isEmpty()) return@launch
+            val probed = runCatching { JmRepository.availableRankTabs() }.getOrNull()
+            val tabs = probed?.takeIf { it.isNotEmpty() }
+                ?: RankCache.loadTabs()
+                ?: RankTab.optimistic
+            if (probed != null && probed.isNotEmpty()) RankCache.saveTabs(probed)
             _rankTabs.value = tabs
             if (tabs.none { it.value == _rankType.value }) {
                 loadRank(tabs.first().value, force = true)
@@ -101,6 +104,10 @@ class HomeViewModel : ViewModel() {
 
     private val _rankError = MutableStateFlow<String?>(null)
     val rankError: StateFlow<String?> = _rankError.asStateFlow()
+
+    /** 非空 = 当前展示的是缓存，值为缓存时间戳（P1-07 横幅用） */
+    private val _rankCacheAt = MutableStateFlow<Long?>(null)
+    val rankCacheAt: StateFlow<Long?> = _rankCacheAt.asStateFlow()
 
     private var rankLoadedAt = 0L
 
@@ -258,6 +265,7 @@ class HomeViewModel : ViewModel() {
         if (!force && _rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
         _rankLoading.value = true
         _rankError.value = null
+        _rankCacheAt.value = null
         viewModelScope.launch {
             try {
                 if (startDelayMs > 0) kotlinx.coroutines.delay(startDelayMs)
@@ -265,14 +273,25 @@ class HomeViewModel : ViewModel() {
                 if (gen != rankGeneration) return@launch
                 _rankComics.value = result.items
                 _rankTotal.value = result.total
+                _rankCacheAt.value = null
+                RankCache.save(type, result.items, result.total)
                 rankLoadedAt = System.currentTimeMillis()
                 _rankRefreshTick.value++
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (gen != rankGeneration) return@launch
-                if (!force) _rankComics.value = emptyList()
-                _rankError.value = e.message ?: "加载排行榜失败"
+                val cached = RankCache.load(type)
+                if (cached != null) {
+                    _rankComics.value = cached.items
+                    _rankTotal.value = cached.total
+                    _rankCacheAt.value = cached.at
+                    _rankError.value = null
+                } else {
+                    if (!force) _rankComics.value = emptyList()
+                    _rankCacheAt.value = null
+                    _rankError.value = e.message ?: "加载排行榜失败"
+                }
             } finally {
                 if (gen == rankGeneration) _rankLoading.value = false
             }

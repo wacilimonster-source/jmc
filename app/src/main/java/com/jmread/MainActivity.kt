@@ -1,5 +1,6 @@
 package com.jmread
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLogger()
+        handleIntent(intent)
         enableEdgeToEdge()
         setContent {
             PiKATheme {
@@ -30,6 +32,22 @@ class MainActivity : ComponentActivity() {
                     MainScreen()
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** 通知点击携带 open_route=comic/{id}：只接受纯数字作品路由，其它忽略。 */
+    private fun handleIntent(intent: Intent?) {
+        val route = intent?.getStringExtra("open_route") ?: return
+        if (!route.startsWith("comic/")) return
+        val id = route.removePrefix("comic/")
+        if (id.isNotEmpty() && id.all { it.isDigit() }) {
+            NavDeeplink.pendingRoute = route
         }
     }
 

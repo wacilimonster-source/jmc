@@ -9,9 +9,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -180,6 +185,7 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
     var input by remember { mutableStateOf("") }
     var selectedTag by remember { mutableStateOf<String?>(null) }
     var showTagSheet by remember { mutableStateOf(false) }
+    var tagFilter by remember { mutableStateOf("") }
     // 官方标签词表固定在本地，无需请求
     val tagList = com.jmread.data.OfficialTags.all
 
@@ -239,11 +245,20 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
         },
     )
 
-    if (showTagSheet && tagList.isNotEmpty()) {
+    if (showTagSheet) {
+        val filteredTags = remember(tagFilter, tagList) {
+            if (tagFilter.isBlank()) {
+                tagList
+            } else {
+                tagList.filter { it.contains(tagFilter, ignoreCase = true) }
+            }
+        }
         ModalBottomSheet(onDismissRequest = { showTagSheet = false }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 24.dp),
             ) {
@@ -257,20 +272,48 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 12.dp),
+                OutlinedTextField(
+                    value = tagFilter,
+                    onValueChange = { tagFilter = it },
+                    singleLine = true,
+                    placeholder = { Text("过滤标签") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 12.dp),
                 ) {
-                    tagList.forEach { tag ->
-                        FilterChip(
-                            selected = selectedTag == tag,
-                            onClick = {
-                                selectedTag = tag
-                                showTagSheet = false
-                            },
-                            label = { Text(tag) },
+                    when {
+                        tagList.isEmpty() -> Text(
+                            text = "暂无可选标签",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        filteredTags.isEmpty() -> Text(
+                            text = "没有匹配的标签",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        else -> FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            filteredTags.forEach { tag ->
+                                FilterChip(
+                                    selected = selectedTag == tag,
+                                    onClick = {
+                                        selectedTag = tag
+                                        showTagSheet = false
+                                    },
+                                    label = { Text(tag) },
+                                )
+                            }
+                        }
                     }
                 }
             }

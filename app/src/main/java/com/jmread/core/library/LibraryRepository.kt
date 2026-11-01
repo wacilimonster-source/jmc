@@ -8,6 +8,7 @@ import com.jmread.data.Bookmarks
 import com.jmread.data.FavouriteSyncQueue
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.ReaderStatus
+import com.jmread.data.ReadHistorySnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -262,10 +263,33 @@ object LibraryRepository {
      * 清除单部作品的本地阅读痕迹（历史条目 + 进度 + 读完标记）。
      * 收藏态不动；云端历史无删除端点，不在能力范围内。
      */
-    suspend fun clearReadHistory(comicId: String) = withContext(Dispatchers.IO) {
+    suspend fun clearReadHistory(comicId: String): ReadHistorySnapshot? = withContext(Dispatchers.IO) {
+        val snapshot = runCatching {
+            ReaderPrefs.current().snapshotForClear(comicId)
+        }.getOrNull()
         ReaderPrefs.current().deleteRecentRead(comicId)
         ReaderPrefs.current().clearProgress(comicId)
         ReaderStatus.clear(comicId)
+        notifyLocalChanged()
+        snapshot
+    }
+
+    /**
+     * 撤销清除（P1-08）：快照恢复时保留清除后新增的进度/读完/历史，
+     * 已读章节集合做并集；收藏状态不参与。
+     */
+    suspend fun restoreReadHistory(snapshot: ReadHistorySnapshot) = withContext(Dispatchers.IO) {
+        ReaderPrefs.current().restoreSnapshot(snapshot)
+        snapshot.recentRead?.let {
+            ReaderPrefs.current().restoreRecentReads(listOf(it))
+        }
+        val finished = ReaderPrefs.current().isFinished(snapshot.comicId)
+        val progress = ReaderPrefs.current().lastProgress(snapshot.comicId)
+        when {
+            finished -> ReaderStatus.markFinished(snapshot.comicId)
+            progress != null -> ReaderStatus.markRead(snapshot.comicId)
+            else -> ReaderStatus.clear(snapshot.comicId)
+        }
         notifyLocalChanged()
     }
 }

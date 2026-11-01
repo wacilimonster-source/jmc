@@ -11,6 +11,7 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.key.Keyer
 import coil.request.Options
+import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.network.BcTls
@@ -41,13 +42,22 @@ class JmUrlKeyer : Keyer<Uri> {
  * 预取（ReaderViewModel.preloadNearby）必须使用同一个 key，
  * 否则预取的字节会落在另一个缓存键下、展示请求无法命中。
  */
-internal fun jmImageCacheKey(url: String): String = when {
-    // 手动覆盖请求自带独立后缀，直接作 key（与自动判定结果缓存隔离）
-    url.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) ||
-        url.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> url
-    // #de2：旧版 #de 缓存里存的是按错误条数「还原」过的字节，换键让它们自然失效
-    ImageScrambler.isPhotoUrl(url) -> "$url#de2"
-    else -> url
+internal fun jmImageCacheKey(url: String): String {
+    val mode = when {
+        url.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) -> ImageScrambler.SUFFIX_FORCE_RESTORE
+        url.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> ImageScrambler.SUFFIX_FORCE_RAW
+        else -> ""
+    }
+    // 重试后缀只用于破“同一请求”的即时状态，不进入持久缓存身份；
+    // 否则每次重试都会生成新磁盘缓存，且预取与展示永远命中不到同一份结果。
+    val base = ImageScrambler.stripManualSuffix(url).substringBefore("#retry")
+    return when {
+        !ImageScrambler.isPhotoUrl(base) -> base
+        mode == ImageScrambler.SUFFIX_FORCE_RAW -> "$base#raw"
+        mode == ImageScrambler.SUFFIX_FORCE_RESTORE -> "$base#de2#m1"
+        // #de2：旧版 #de 缓存里存的是按错误条数「还原」过的字节，换键让它们自然失效
+        else -> "$base#de2"
+    }
 }
 
 /**
@@ -97,7 +107,7 @@ class JmImageFetcher(
             data.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> -1
             else -> null
         }
-        val cleanUrl = ImageScrambler.stripManualSuffix(data)
+        val cleanUrl = ImageScrambler.stripManualSuffix(data).substringBefore("#retry")
         val cacheKey = jmImageCacheKey(data)
         val cached = readFromDisk(cacheKey)
         val (processed, source) = if (cached != null) {
@@ -106,7 +116,12 @@ class JmImageFetcher(
             val bytes = download(cleanUrl)
             val out = if (ImageScrambler.isPhotoUrl(cleanUrl)) {
                 // 章节图判定乱序并还原后再落盘/解码（离线与在线必须一致）
-                ImageScrambler.processBytesIfNeeded(cleanUrl, bytes, force)
+                ImageScrambler.processBytesIfNeeded(
+                    cleanUrl,
+                    bytes,
+                    force,
+                    maxHeight = MemoryBudget.maxDecodeHeightPx(options.context),
+                )
             } else {
                 bytes
             }
@@ -156,16 +171,21 @@ class JmImageFetcher(
      * 各 CDN 又会按区域被 DNS/运营商屏蔽（实测本机 *.jmapiproxy3.cc 被解析到 127.0.0.1）。
      * 早期版本只请求一个 host，失败即报「加载失败」，整本书的图永不恢复。
      */
-    private fun download(url: String): ByteArray {
+    private suspend fun download(url: String): ByteArray = fetchJmImageBytes(url)
+}
+
+
+/** 下载单张禁漫图片原始字节（带 CDN 换线）；供保存/分享复用同一线路策略。 */
+internal suspend fun fetchJmImageBytes(url: String): ByteArray =
+    withContext(Dispatchers.IO) {
         val parsed = url.toHttpUrlOrNull() ?: throw IOException("非法图片 URL: $url")
-        // 各 CDN 的路径完全一致（/media/photos/{id}/{file}），只换 host 即可
         val pathAndQuery = parsed.encodedPath + (parsed.encodedQuery?.let { "?$it" } ?: "")
         var lastError: Exception? = null
         for (host in DomainPool.imageHostOrder(parsed.host)) {
             try {
-                val bytes = fetchOnce("https://$host$pathAndQuery")
+                val bytes = fetchJmImageOnce("https://$host$pathAndQuery")
                 DomainPool.markImageGood(host)
-                return bytes
+                return@withContext bytes
             } catch (e: Exception) {
                 lastError = e
                 DomainPool.markImageBad(host)
@@ -178,14 +198,13 @@ class JmImageFetcher(
         throw lastError ?: IOException("图片加载失败（所有 CDN 均不可用）: $url")
     }
 
-    private fun fetchOnce(url: String): ByteArray {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "okhttp/4.12.0")
-            .build()
-        BcTls.imageLoaderClient.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("图片加载失败 HTTP ${resp.code}: $url")
-            return resp.body?.bytes() ?: throw IOException("图片响应为空: $url")
-        }
+private fun fetchJmImageOnce(url: String): ByteArray {
+    val request = Request.Builder()
+        .url(url)
+        .header("User-Agent", "okhttp/4.12.0")
+        .build()
+    BcTls.imageLoaderClient.newCall(request).execute().use { resp ->
+        if (!resp.isSuccessful) throw IOException("图片加载失败 HTTP ${resp.code}: $url")
+        return resp.body?.bytes() ?: throw IOException("图片响应为空: $url")
     }
 }

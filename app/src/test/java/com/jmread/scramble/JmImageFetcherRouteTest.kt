@@ -54,9 +54,11 @@ class JmImageFetcherRouteTest {
 
     @Test
     fun `手动覆盖请求使用独立缓存键`() {
+        // 修订版 P0-02：缓存身份必须区分自动/强制还原模式，且重试次数不进入持久键
         val url = "https://cdn-msp.jmapiproxy1.cc/media/photos/254931/00001.webp"
-        assertEquals("$url#m1", jmImageCacheKey("$url#m1"))
-        assertEquals("$url#m0", jmImageCacheKey("$url#m0"))
+        assertEquals("$url#de2#m1", jmImageCacheKey("$url#m1"))
+        assertEquals("$url#raw", jmImageCacheKey("$url#m0"))
+        assertEquals(jmImageCacheKey("$url#m1"), jmImageCacheKey("$url#retry2#m1"))
     }
 
     @Test

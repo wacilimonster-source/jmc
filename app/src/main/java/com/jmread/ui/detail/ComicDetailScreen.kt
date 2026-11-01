@@ -1,5 +1,6 @@
 package com.jmread.ui.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
@@ -61,13 +63,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import com.jmread.core.model.ComicChapter
 import com.jmread.core.model.ComicComment
 import com.jmread.core.model.ComicDetail
 import com.jmread.core.model.ComicSummary
+import com.jmread.data.ChaptersReadDoc
+import com.jmread.data.ReaderPrefs
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ComicDetailScreen(
     ref: String,
@@ -98,6 +103,11 @@ fun ComicDetailScreen(
     var showCommentDialog by remember { mutableStateOf(false) }
     val downloadTasks by com.jmread.core.download.DownloadManager.tasks.collectAsState()
     val downloadedOrders by viewModel.downloadedOrders.collectAsState()
+    val readChapterKeys by viewModel.readChapterKeys.collectAsState()
+    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsState(initial = false)
+    val displayChapters = remember(chapters, chapterDesc) {
+        if (chapterDesc) chapters.asReversed() else chapters
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -337,6 +347,17 @@ fun ComicDetailScreen(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
+                        if (chapters.size > 1) {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        ReaderPrefs.current().setChapterListDescending(!chapterDesc)
+                                    }
+                                },
+                            ) {
+                                Text(if (chapterDesc) "倒序 ↓" else "正序 ↑")
+                            }
+                        }
                         val done = downloadTasks.count {
                             it.task.comicId == comicId && it.isFinished
                         }
@@ -349,14 +370,20 @@ fun ComicDetailScreen(
                         }
                     }
                 }
-                items(chapters, key = { it.id }) { chapter ->
+                items(displayChapters, key = { it.id.ifBlank { "order:${it.order}" } }) { chapter ->
                     // 查 VM 在 IO 线程预算好的集合：此前在组合期同步调 isDownloaded
                     // （内部 listFiles 目录遍历），列表每项都会做一次磁盘 IO
+                    val read = if (chapter.id.isNotBlank()) {
+                        chapter.id in readChapterKeys
+                    } else {
+                        ChaptersReadDoc.orderKey(chapter.order) in readChapterKeys
+                    }
                     ChapterRow(
                         chapter = chapter,
                         onClick = { onOpenReader(ref, chapter.order) },
                         onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
                         downloaded = chapter.order in downloadedOrders,
+                        read = read,
                     )
                 }
                 if (loading && chapters.isEmpty()) {
@@ -426,13 +453,17 @@ fun ComicDetailScreen(
                         }
                     }
                     items(comments, key = { it.id }) { comment ->
-                        CommentItem(
-                            comment = comment,
-                            subComments = subComments[comment.id].orEmpty(),
-                            replying = replyingTo == comment.id,
-                            onReply = { viewModel.setReplyingTo(comment.id) },
-                            onToggleSub = { viewModel.toggleSubComments(comment.id) },
-                        )
+                        Box(
+                            Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                        ) {
+                            CommentItem(
+                                comment = comment,
+                                subComments = subComments[comment.id].orEmpty(),
+                                replying = replyingTo == comment.id,
+                                onReply = { viewModel.setReplyingTo(comment.id) },
+                                onToggleSub = { viewModel.toggleSubComments(comment.id) },
+                            )
+                        }
                     }
                     if (commentLoading) {
                         item {
@@ -475,6 +506,17 @@ fun ComicDetailScreen(
                                         .padding(top = 12.dp)
                                         .clickable { viewModel.load(ref) },
                                 )
+                                // 通知直达详情时若离线，直接给已下载章节入口（P0-04）
+                                val localOrders = downloadTasks
+                                    .filter { it.task.comicId == comicId && it.isFinished }
+                                    .map { it.task.order }
+                                    .sorted()
+                                if (localOrders.isNotEmpty()) {
+                                    Button(
+                                        onClick = { onOpenReader(ref, localOrders.first()) },
+                                        modifier = Modifier.padding(top = 12.dp),
+                                    ) { Text("打开本地下载") }
+                                }
                             } else {
                                 Text("加载中…", style = MaterialTheme.typography.bodyMedium)
                             }
@@ -796,6 +838,7 @@ private fun ChapterRow(
     onClick: () -> Unit,
     onDownload: () -> Unit,
     downloaded: Boolean,
+    read: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -811,6 +854,16 @@ private fun ChapterRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (read) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = "已读",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(16.dp)
+                    .padding(end = 4.dp),
+            )
+        }
         if (downloaded) {
             Text(
                 text = "已下载",

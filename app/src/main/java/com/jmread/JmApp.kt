@@ -1,9 +1,11 @@
 package com.jmread
 
+import android.animation.ValueAnimator
 import android.app.Application
 import coil.Coil
 import coil.ImageLoader
 import com.jmread.core.JmRepository
+import com.jmread.core.MemoryBudget
 import com.jmread.core.download.DownloadManager
 import com.jmread.core.log.AppSessionState
 import com.jmread.core.log.CrashReporter
@@ -13,10 +15,13 @@ import com.jmread.core.scramble.JmImageFetcher
 import com.jmread.core.scramble.JmUrlKeyer
 import com.jmread.core.scramble.ScrambleCache
 import com.jmread.data.AuthorFavourites
+import com.jmread.data.CategorySettings
+import com.jmread.data.DownloadPrefs
 import com.jmread.data.Bookmarks
 import com.jmread.data.FollowFeedCache
 import com.jmread.data.FollowSettings
 import com.jmread.data.GridSettings
+import com.jmread.data.RankCache
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.ReaderStatus
 import com.jmread.data.SearchHistory
@@ -38,9 +43,12 @@ class JmApp : Application() {
         CrashReporter.install(this)
         MainThreadWatchdog.start(this)
         AppSessionState.register(this)
+        MemoryBudget.init(this)
+        com.jmread.ui.common.AppSnackbar.init(this)
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
         GridSettings.init(this)
+        CategorySettings.init(this)
         SearchHistory.init(this)
         // 本地书架：未登录态详情心形直接写这里，漏初始化会让点击直接闪退
         Bookmarks.init(this)
@@ -57,9 +65,12 @@ class JmApp : Application() {
         FollowSettings.init(this)
         FollowFeedCache.init(this)
         UpdatedAtCache.init(this)
+        RankCache.init(this)
         SecureAccountStore.init(this)
         ScrambleCache.init(this)
+        DownloadPrefs.init(this)
         DownloadManager.init(this)
+        appScope.launch { com.jmread.ui.reader.ImageSaver.cleanupShareCache(this@JmApp) }
         // 401 静默重登钩子装配 + 启动刷新一次 /setting（域名/版本/img_host 自愈）
         JmRepository.init()
         appScope.launch { JmRepository.launchSettingRefresh() }
@@ -71,6 +82,9 @@ class JmApp : Application() {
         Coil.setImageLoader(
             ImageLoader.Builder(this)
                 .okHttpClient(BcTls.imageLoaderClient)
+                // P2-01：列表封面 150ms 淡入；阅读器/预取请求在各自 ImageRequest 里
+                // 显式 crossfade(false)，不受这个全局值影响。系统关闭动画时不淡入。
+                .crossfade(if (ValueAnimator.areAnimatorsEnabled()) 150 else 0)
                 .components {
                     add(JmUrlKeyer())
                     add(JmImageFetcher.Factory())
@@ -82,5 +96,16 @@ class JmApp : Application() {
                 }
                 .build(),
         )
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val shouldRelease = MemoryBudget.onTrimMemory(level)
+        if (shouldRelease) {
+            runCatching { Coil.imageLoader(this).memoryCache?.clear() }
+            com.jmread.core.log.LogStore.log(
+                "Memory", "I", "onTrimMemory level=$level：释放图片内存缓存，预取降级",
+            )
+        }
     }
 }

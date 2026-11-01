@@ -241,7 +241,7 @@ fun LibraryScreen(
                 menuTarget = null
             },
             onClearHistory = {
-                viewModel.clearReadHistory(target.comicId)
+                ReadHistoryUndo.clearAndOffer(target.comicId, target.title)
                 menuTarget = null
             },
             onOpenDetail = {

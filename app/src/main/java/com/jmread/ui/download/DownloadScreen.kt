@@ -1,5 +1,12 @@
 package com.jmread.ui.download
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,9 +28,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,29 +43,36 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.jmread.core.download.DlStatus
+import com.jmread.core.download.DownloadExporter
 import com.jmread.core.download.DownloadManager
 import com.jmread.core.download.TaskRuntime
+import com.jmread.ui.common.AppSnackbar
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * 下载管理页：总存储占用 / 实时速度 / 每任务进度 / 失败重试 / 删除。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DownloadScreen(
     onBack: () -> Unit,
@@ -66,6 +82,104 @@ fun DownloadScreen(
     // 显式订阅派生状态：总占用 / 总速度独立刷新，不依赖 tasks 的隐式读取
     val totalBytes by DownloadManager.totalBytesFlow.collectAsState()
     val totalSpeed by DownloadManager.totalSpeedFlow.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportState by DownloadExporter.state.collectAsState()
+    var pendingExport by remember { mutableStateOf<PendingExport?>(null) }
+    var partialExport by remember { mutableStateOf<PendingExport?>(null) }
+    var lastExport by remember { mutableStateOf<PendingExport?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val target = pendingExport
+        pendingExport = null
+        if (uri != null && target != null) {
+            lastExport = target
+            DownloadExporter.start(context, target.comicId, uri)
+        }
+    }
+
+    fun launchExport(target: PendingExport) {
+        pendingExport = target
+        exportLauncher.launch(target.fileName)
+    }
+
+    // 导出终态：Snackbar 给分享/重试动作；消费后不再重复弹
+    LaunchedEffect(exportState) {
+        when (val state = exportState) {
+            is DownloadExporter.ExportState.Done -> {
+                val result = AppSnackbar.hostState.showSnackbar(
+                    message = "已导出 ${state.fileName}",
+                    actionLabel = "分享",
+                    duration = androidx.compose.material3.SnackbarDuration.Long,
+                )
+                if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                    shareZip(context, state.uri)
+                }
+                DownloadExporter.consume()
+            }
+            is DownloadExporter.ExportState.Error -> {
+                val result = AppSnackbar.hostState.showSnackbar(
+                    message = state.message,
+                    actionLabel = if (lastExport != null) "重试" else null,
+                    duration = androidx.compose.material3.SnackbarDuration.Long,
+                )
+                if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                    lastExport?.let { launchExport(it) }
+                }
+                DownloadExporter.consume()
+            }
+            else -> {}
+        }
+    }
+
+    // 失败提示以进入页面时的状态为基线，避免恢复清单的批量 FAILED 一进页就轰炸
+    var failuresInitialized by remember { mutableStateOf(false) }
+    var knownFailures by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(tasks) {
+        val current = tasks.filter { it.status == DlStatus.FAILED }.map { it.key }.toSet()
+        if (!failuresInitialized) {
+            if (tasks.isNotEmpty()) {
+                knownFailures = current
+                failuresInitialized = true
+            }
+            return@LaunchedEffect
+        }
+        val newOnes = current - knownFailures
+        knownFailures = current
+        if (newOnes.isNotEmpty()) {
+            val result = AppSnackbar.hostState.showSnackbar(
+                message = if (newOnes.size == 1) "下载失败" else "${newOnes.size} 个任务下载失败",
+                actionLabel = "重试全部",
+                duration = androidx.compose.material3.SnackbarDuration.Long,
+            )
+            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                newOnes.forEach { DownloadManager.retry(it) }
+            }
+        }
+    }
+
+    if (partialExport != null) {
+        val target = partialExport!!
+        AlertDialog(
+            onDismissRequest = { partialExport = null },
+            title = { Text("导出《${target.title}》") },
+            text = {
+                Text(
+                    "还有 ${target.incomplete} 章未完成，这次只导出已完成的 ${target.completed} 章？",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    partialExport = null
+                    launchExport(target)
+                }) { Text("导出已完成") }
+            },
+            dismissButton = {
+                TextButton(onClick = { partialExport = null }) { Text("取消") }
+            },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -123,6 +237,58 @@ fun DownloadScreen(
                 }
             }
 
+            (exportState as? DownloadExporter.ExportState.Running)?.let { running ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "正在导出 ${running.chapterIndex}/${running.totalChapters} 章",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = running.chapterTitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            LinearProgressIndicator(
+                                progress = {
+                                    if (running.totalChapters <= 0) 0f
+                                    else running.chapterIndex.toFloat() / running.totalChapters
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        TextButton(onClick = { DownloadExporter.cancel() }) { Text("取消") }
+                    }
+                }
+            }
+            val waitingWifi = tasks.any { it.waitingForWifi }
+            val waitingNetwork = tasks.any { it.waitingForNetwork }
+            if (waitingWifi || waitingNetwork) {
+                Text(
+                    text = if (waitingWifi) {
+                        "移动网络下已暂停，连接可用 Wi-Fi 后自动继续"
+                    } else {
+                        "无网络连接，恢复后自动继续"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
             // 展开态上提到分支外：此前 remember 位于 else 分支内，
             // tasks 在"空 ↔ 非空"之间切换时会被重置，展开状态丢失
             var expandedComic by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -162,6 +328,7 @@ fun DownloadScreen(
                 ) {
                     items(grouped, key = { it.key }) { (comicId, comicTasks) ->
                         val expanded = comicId in expandedComic
+                        Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) {
                         ComicGroupCard(
                             comicId = comicId,
                             tasks = comicTasks,
@@ -181,7 +348,20 @@ fun DownloadScreen(
                             onRetry = { DownloadManager.retry(it) },
                             onDelete = { DownloadManager.remove(it) },
                             onDeleteAll = { comicTasks.forEach { t -> DownloadManager.remove(t.key) } },
+                            exportEnabled = exportState !is DownloadExporter.ExportState.Running,
+                            deleteEnabled = (exportState as? DownloadExporter.ExportState.Running)?.comicId != comicId,
+                            onExport = {
+                                val target = PendingExport(
+                                    comicId = comicId,
+                                    title = comicTasks.firstOrNull()?.task?.comicTitle.orEmpty(),
+                                    incomplete = comicTasks.count { !it.isFinished },
+                                    completed = comicTasks.count { it.isFinished },
+                                )
+                                if (target.incomplete > 0) partialExport = target
+                                else launchExport(target)
+                            },
                         )
+                        }
                     }
                 }
             }
@@ -199,6 +379,9 @@ private fun ComicGroupCard(
     onRetry: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDeleteAll: () -> Unit,
+    onExport: () -> Unit,
+    exportEnabled: Boolean = true,
+    deleteEnabled: Boolean = true,
 ) {
     val first = tasks.first()
     val task = first.task
@@ -250,7 +433,18 @@ private fun ComicGroupCard(
                         .height(4.dp),
                 )
             }
-            IconButton(onClick = onDeleteAll) {
+            IconButton(onClick = onExport, enabled = exportEnabled && done > 0) {
+                Icon(
+                    Icons.Filled.FileUpload,
+                    contentDescription = "导出已完成章节",
+                    tint = if (done > 0) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            IconButton(onClick = onDeleteAll, enabled = deleteEnabled) {
                 Icon(
                     Icons.Filled.Delete,
                     contentDescription = "删除整本",
@@ -266,14 +460,17 @@ private fun ComicGroupCard(
             }
         }
         if (expanded) {
-            HorizontalDivider(Modifier.padding(horizontal = 12.dp))
-            tasks.sortedBy { it.task.order }.forEach { runtime ->
-                DownloadTaskRow(
-                    runtime = runtime,
-                    onClick = { onChapterClick(runtime.task.order) },
-                    onRetry = { onRetry(runtime.key) },
-                    onDelete = { onDelete(runtime.key) },
-                )
+            Column(Modifier.animateContentSize()) {
+                HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+                tasks.sortedBy { it.task.order }.forEach { runtime ->
+                    DownloadTaskRow(
+                        runtime = runtime,
+                        onClick = { onChapterClick(runtime.task.order) },
+                        onRetry = { onRetry(runtime.key) },
+                        onDelete = { onDelete(runtime.key) },
+                        deleteEnabled = deleteEnabled,
+                    )
+                }
             }
         }
     }
@@ -285,6 +482,7 @@ private fun DownloadTaskRow(
     onClick: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    deleteEnabled: Boolean = true,
 ) {
     val task = runtime.task
     Row(
@@ -302,7 +500,19 @@ private fun DownloadTaskRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
-            when (runtime.status) {
+            if (runtime.waitingForWifi || runtime.waitingForNetwork) {
+                Text(
+                    text = if (runtime.waitingForWifi) "等待 Wi-Fi" else "等待网络",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${runtime.downloadedPages}/${task.pageCount} 页 · ${formatBytes(runtime.totalBytes)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else when (runtime.status) {
                 DlStatus.DOWNLOADING, DlStatus.PENDING -> {
                     LinearProgressIndicator(
                         progress = { runtime.progress / 100f },
@@ -354,7 +564,7 @@ private fun DownloadTaskRow(
                 )
             }
         }
-        IconButton(onClick = onDelete) {
+        IconButton(onClick = onDelete, enabled = deleteEnabled) {
             Icon(
                 Icons.Filled.Delete,
                 contentDescription = "删除",
@@ -372,4 +582,37 @@ internal fun formatBytes(bytes: Long): String = when {
     bytes < 1024L * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
     bytes < 1024L * 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024))
     else -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024))
+}
+
+/** 一次导出意图：冻结漫画与完成/未完成章数。 */
+private data class PendingExport(
+    val comicId: String,
+    val title: String,
+    val incomplete: Int,
+    val completed: Int,
+) {
+    val fileName: String
+        get() {
+            val safe = title.replace(Regex("[\\\\/:*?\"<>|\n\r]"), "_").trim()
+                .ifBlank { "JM Reader" }
+            return "${safe.take(60)}.zip"
+        }
+}
+
+private fun shareZip(context: android.content.Context, uri: Uri) {
+    val readable = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { }
+    }.isSuccess
+    if (!readable) {
+        Toast.makeText(context, "导出文件不可读取，请从文件管理器分享", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/zip"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, "分享导出文件"))
+    }
 }

@@ -11,6 +11,8 @@ import com.jmread.core.model.ComicDetail
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.log.LogStore
 import com.jmread.data.Bookmarks
+import com.jmread.data.ChaptersReadDoc
+import com.jmread.data.ReaderPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -120,6 +122,7 @@ class ComicDetailViewModel : ViewModel() {
         _replyingTo.value = null
         _commentEndReached.value = false
         _commentError.value = null
+        _readChapterKeys.value = emptySet()
         // 必须复位：loadComments 用 _commentLoading 作重入锁
         _commentLoading.value = false
         _comments.value = emptyList()
@@ -138,12 +141,14 @@ class ComicDetailViewModel : ViewModel() {
                     val list = JmRepository.chapters(comicId)
                     if (gen != loadGeneration) return@launch
                     _chapters.value = list
+                    refreshReadKeys(comicId, gen)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     if (gen == loadGeneration) {
                         _chaptersError.value = e.message?.takeIf { it.isNotBlank() } ?: "章节加载失败"
                     }
+                    refreshReadKeys(comicId, gen)
                 } finally {
                     if (gen == loadGeneration) _loading.value = false
                 }
@@ -181,6 +186,7 @@ class ComicDetailViewModel : ViewModel() {
         loadRecommendations(comicId, gen)
         loadComments(comicId, page = 1, gen = gen)
         observeDownloaded(comicId)
+        observeReadChapters(comicId, gen)
     }
 
     /** 相关推荐 */
@@ -207,6 +213,7 @@ class ComicDetailViewModel : ViewModel() {
                 val list = JmRepository.chapters(comicId)
                 if (gen != loadGeneration) return@launch
                 _chapters.value = list
+                refreshReadKeys(comicId, gen)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -217,6 +224,29 @@ class ComicDetailViewModel : ViewModel() {
                 if (gen == loadGeneration) _loading.value = false
             }
         }
+    }
+
+    /** 已读章节身份集合（稳定 chapterId + order 回退） */
+    private val _readChapterKeys = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val readChapterKeys: kotlinx.coroutines.flow.StateFlow<Set<String>> = _readChapterKeys
+
+    private var readObserverJob: kotlinx.coroutines.Job? = null
+
+    /** 观察已读版本：其他入口清除/撤销后，详情页勾选即时刷新 */
+    private fun observeReadChapters(comicId: String, gen: Int) {
+        readObserverJob?.cancel()
+        readObserverJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            ReaderPrefs.current().chapterReadVersion.collect {
+                refreshReadKeys(comicId, gen)
+            }
+        }
+    }
+
+    private suspend fun refreshReadKeys(comicId: String, gen: Int) {
+        val keys = runCatching {
+            ReaderPrefs.current().readChapterKeysAsync(comicId)
+        }.getOrDefault(emptySet())
+        if (gen == loadGeneration) _readChapterKeys.value = keys
     }
 
     /** 已下载章节号集合（供 UI 查表；章节/下载任务变化时 IO 线程重算一次） */
@@ -249,6 +279,7 @@ class ComicDetailViewModel : ViewModel() {
             epTitle = chapter.title,
             // 单章页数运行时才可知，传 0 由 runTask 拉取真实页数后回填
             pageCount = 0,
+            author = comic?.author ?: "",
         )
     }
 
@@ -259,6 +290,7 @@ class ComicDetailViewModel : ViewModel() {
             comicTitle = comic?.title ?: comicId,
             coverUrl = comic?.coverUrl ?: "",
             chapters = chapters.map { it.order to it.title },
+            author = comic?.author ?: "",
         )
     }
 

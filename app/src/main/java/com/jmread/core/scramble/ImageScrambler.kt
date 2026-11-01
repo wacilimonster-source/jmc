@@ -71,11 +71,27 @@ object ImageScrambler {
      * 下载路径：解码 → 判定还原 → 重编码。
      * 已判定「未打乱」或未命中打乱时返回原始字节（零损失）；命中时重编码（minSdk 26 用兼容的 WEBP）。
      */
-    fun processBytesIfNeeded(url: String, bytes: ByteArray, force: Int? = null): ByteArray {
+    fun processBytesIfNeeded(
+        url: String,
+        bytes: ByteArray,
+        force: Int? = null,
+        maxWidth: Int = 2160,
+        maxHeight: Int = 8192,
+    ): ByteArray {
         if (!isPhotoUrl(url)) return bytes
         if (force == -1) return bytes
         if (force == null && JmScramble.segmentCountForUrl(url) <= 1) return bytes
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
+        // 还原发生在 Coil 缩略解码之前：必须先按预算降采样，否则超宽/超长原图
+        // 会在 decodeByteArray 阶段直接 OOM（解码上限只能约束 Coil 的第二次解码）。
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return bytes
+        val sample = sampleSizeFor(bounds.outWidth, bounds.outHeight, maxWidth, maxHeight)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return bytes
         val processed = processIfNeeded(url, bmp, force)
         if (processed === bmp) {
             bmp.recycle()
@@ -86,5 +102,14 @@ object ImageScrambler {
         processed.recycle()
         bmp.recycle()
         return bos.toByteArray()
+    }
+
+    /** 2 的幂降采样，保证还原前位图不超过单图预算。 */
+    private fun sampleSizeFor(width: Int, height: Int, maxWidth: Int, maxHeight: Int): Int {
+        var sample = 1
+        while (width / sample > maxWidth || height / sample > maxHeight) {
+            sample *= 2
+        }
+        return sample
     }
 }

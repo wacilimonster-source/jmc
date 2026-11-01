@@ -47,6 +47,7 @@ import coil.compose.AsyncImage
 import com.jmread.core.model.ComicSummary
 
 /** 漫画网格：每行数量随设置（2/3，默认 2）+ 触底自动加载更多 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ComicGridView(
     comics: List<ComicSummary>,
@@ -91,17 +92,21 @@ fun ComicGridView(
             // 不 remember：列表数据变化（收藏切换/进度更新）后必须在下次重组直接反映新值
             val statusLine = statusLineOf?.invoke(comic.ref)
             val collected = collectedOf?.invoke(comic.ref)
-            ComicCard(
-                comic = comic,
-                readStatus = readStatus,
-                largeTitle = columns == 2,
-                isNew = isNew,
-                statusLine = statusLine,
-                collected = collected,
-                onFavouriteToggle = onFavouriteToggle,
-                onClick = { onComicClick(comic.ref) },
-                onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
-            )
+            Box(
+                Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+            ) {
+                ComicCard(
+                    comic = comic,
+                    readStatus = readStatus,
+                    largeTitle = columns == 2,
+                    isNew = isNew,
+                    statusLine = statusLine,
+                    collected = collected,
+                    onFavouriteToggle = onFavouriteToggle,
+                    onClick = { onComicClick(comic.ref) },
+                    onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
+                )
+            }
         }
         if (loading && showTailLoading) {
             item {

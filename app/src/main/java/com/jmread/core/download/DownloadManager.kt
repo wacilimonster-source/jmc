@@ -1,10 +1,28 @@
 package com.jmread.core.download
 
+import android.Manifest
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
+import coil.Coil
+import coil.request.ImageRequest
+import com.jmread.MainActivity
+import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
 import com.jmread.core.JmRepository
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.core.scramble.ImageScrambler
+import com.jmread.data.DownloadPrefs
 import com.jmread.network.BcTls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +43,7 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
 /** 下载任务状态 */
@@ -41,6 +60,8 @@ data class DownloadTask(
     val epTitle: String,
     val pageCount: Int,
     val createdAt: Long = System.currentTimeMillis(),
+    /** 导出元数据用；旧 manifest 无该字段时默认空串 */
+    val author: String = "",
 )
 
 /** 运行时状态（含进度/速度/占用，不持久化） */
@@ -51,6 +72,9 @@ data class TaskRuntime(
     val totalBytes: Long = 0L,
     val bytesPerSecond: Long = 0L,
     val error: String = "",
+    /** 瞬态等待原因（不写入 manifest，重启后按网络重算） */
+    val waitingForWifi: Boolean = false,
+    val waitingForNetwork: Boolean = false,
 ) {
     val key: String get() = "${task.comicId}#${task.order}"
     val progress: Int get() = if (task.pageCount > 0) (downloadedPages * 100 / task.pageCount) else 0
@@ -77,6 +101,9 @@ object DownloadManager {
      */
     private val runningJobs = ConcurrentHashMap<String, Job>()
 
+    /** 本轮已删除的 key：恢复清单时不得复活（P2-06） */
+    private val deletedKeys = Collections.synchronizedSet(mutableSetOf<String>())
+
     private fun cancelRun(key: String) {
         runningJobs.remove(key)?.cancel()
     }
@@ -96,11 +123,46 @@ object DownloadManager {
 
     const val CONCURRENCY = 2
 
+    private const val NOTIFY_CHANNEL_ID = "download"
+
+    /** 本次下载批次：comicId -> 本次所选章节 order。完成/取消/删除会更新或移除。 */
+    private val activeBatches = ConcurrentHashMap<String, MutableSet<Int>>()
+
+    private enum class NetworkGate { ALLOWED, WAITING_WIFI, WAITING_NETWORK }
+
+    private class NetworkGateException(val gate: NetworkGate) : Exception("network gate: $gate")
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            scope.launch { pump() }
+        }
+
+        override fun onLost(network: Network) {
+            scope.launch { pump() }
+        }
+
+        override fun onCapabilitiesChanged(
+            network: Network,
+            networkCapabilities: NetworkCapabilities,
+        ) {
+            scope.launch { pump() }
+        }
+    }
+
     fun init(context: Context) {
         appContext = context.applicationContext
         // 目录遍历可能较慢，放到后台协程，避免阻塞冷启动主线程
         scope.launch { restoreTasks() }
         startSpeedSampler()
+        runCatching {
+            context.getSystemService(ConnectivityManager::class.java)
+                ?.registerDefaultNetworkCallback(networkCallback)
+        }
+    }
+
+    /** 设置页切换「仅 Wi-Fi」后立即重新评估排队任务。 */
+    fun refreshNetworkGate() {
+        pump()
     }
 
     // ── 路径 ──────────────────────────────────────────────────────────────
@@ -143,14 +205,17 @@ object DownloadManager {
         order: Int,
         epTitle: String,
         pageCount: Int,
+        author: String = "",
     ) {
         scope.launch {
             mutex.withLock {
                 // 对存在任务重复入队 = 重新下载：先停掉旧执行者，再重置状态
-                cancelRun("$comicId#$order")
+                val enqueueKey = "$comicId#$order"
+                deletedKeys.remove(enqueueKey)
+                cancelRun(enqueueKey)
                 val list = _tasks.value.toMutableList()
                 val idx = list.indexOfFirst { it.key == "$comicId#$order" }
-                val task = DownloadTask(comicId, comicTitle, coverUrl, order, epTitle, pageCount)
+                val task = DownloadTask(comicId, comicTitle, coverUrl, order, epTitle, pageCount, author = author)
                 if (idx >= 0) {
                     val old = list[idx]
                     list[idx] = old.copy(
@@ -164,6 +229,7 @@ object DownloadManager {
                     list.add(TaskRuntime(task))
                 }
                 _tasks.value = list
+                addToBatch(comicId, listOf(order))
                 persist()
             }
             pump()
@@ -176,15 +242,19 @@ object DownloadManager {
         comicTitle: String,
         coverUrl: String,
         chapters: List<Pair<Int, String>>,
+        author: String = "",
     ) {
         if (chapters.isEmpty()) return
         scope.launch {
             mutex.withLock {
                 val list = _tasks.value.toMutableList()
+                val addedOrders = mutableSetOf<Int>()
                 var changed = false
                 for ((order, epTitle) in chapters) {
                     if (isDownloaded(comicId, order)) continue
+                    addedOrders += order
                     val key = "$comicId#$order"
+                    deletedKeys.remove(key)
                     val idx = list.indexOfFirst { it.key == key }
                     if (idx >= 0) {
                         val old = list[idx]
@@ -205,6 +275,7 @@ object DownloadManager {
                                     order = order,
                                     epTitle = epTitle,
                                     pageCount = 0,
+                                    author = author,
                                 ),
                             )
                         )
@@ -213,6 +284,7 @@ object DownloadManager {
                 }
                 if (changed) {
                     _tasks.value = list
+                    addToBatch(comicId, addedOrders)
                     persist()
                 }
             }
@@ -225,6 +297,7 @@ object DownloadManager {
             mutex.withLock {
                 // 可能重试一个仍在下载中的任务：先停掉旧执行者，避免双协程并发
                 cancelRun(key)
+                val target = _tasks.value.firstOrNull { it.key == key }
                 _tasks.value = _tasks.value.map {
                     if (it.key == key && !it.isFinished) {
                         it.copy(
@@ -233,9 +306,12 @@ object DownloadManager {
                             downloadedPages = 0,
                             totalBytes = 0,
                             bytesPerSecond = 0,
+                            waitingForWifi = false,
+                            waitingForNetwork = false,
                         )
                     } else it
                 }
+                if (target != null) addToBatch(target.task.comicId, listOf(target.task.order))
                 persist()
             }
             pump()
@@ -246,13 +322,16 @@ object DownloadManager {
         scope.launch {
             mutex.withLock {
                 // 先叫停进行中的下载，再移除任务与文件：否则旧协程会把刚删掉的目录写回来
+                deletedKeys += key
                 cancelRun(key)
                 val target = _tasks.value.firstOrNull { it.key == key }
                 _tasks.value = _tasks.value.filterNot { it.key == key }
+                if (target != null) removeFromBatch(target.task.comicId, target.task.order)
                 persist()
                 if (deleteFiles && target != null) {
                     chapterDir(target.task.comicId, target.task.order).deleteRecursively()
                 }
+                if (target != null) maybeNotifyBatch(target.task.comicId)
             }
         }
     }
@@ -266,10 +345,52 @@ object DownloadManager {
      * 把空闲并发槽补满：单次 pump 可能启动多个任务（此前每次只启动 1 个，
      * 导致 CONCURRENCY 名存实亡、整本下载实为串行）。
      */
+    /** 当前默认网络是否允许启动下载（严格仅 Wi-Fi 含计费热点；以太网等待）。 */
+    private fun currentGate(): NetworkGate {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+            ?: return NetworkGate.ALLOWED
+        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            ?: return NetworkGate.WAITING_NETWORK
+        val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        if (!hasInternet) return NetworkGate.WAITING_NETWORK
+        if (DownloadPrefs.wifiOnly &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        ) {
+            return NetworkGate.WAITING_WIFI
+        }
+        return NetworkGate.ALLOWED
+    }
+
+    /**
+     * 把空闲并发槽补满。
+     * 网络门禁不通过时只更新 PENDING 任务的等待原因，不启动、不标记失败。
+     */
     private fun pump() {
         scope.launch {
+            val gate = currentGate()
             val toStart = mutableListOf<String>()
             mutex.withLock {
+                if (gate != NetworkGate.ALLOWED) {
+                    _tasks.value = _tasks.value.map {
+                        if (it.status == DlStatus.PENDING) {
+                            it.copy(
+                                waitingForWifi = gate == NetworkGate.WAITING_WIFI,
+                                waitingForNetwork = gate == NetworkGate.WAITING_NETWORK,
+                            )
+                        } else {
+                            it
+                        }
+                    }
+                    return@withLock
+                }
+                _tasks.value = _tasks.value.map {
+                    if (it.status == DlStatus.PENDING) {
+                        it.copy(waitingForWifi = false, waitingForNetwork = false)
+                    } else {
+                        it
+                    }
+                }
                 val running = _tasks.value.count { it.status == DlStatus.DOWNLOADING }
                 val slots = (CONCURRENCY - running).coerceAtLeast(0)
                 if (slots > 0) {
@@ -280,7 +401,15 @@ object DownloadManager {
                         .toSet()
                     if (keys.isNotEmpty()) {
                         _tasks.value = _tasks.value.map {
-                            if (it.key in keys) it.copy(status = DlStatus.DOWNLOADING) else it
+                            if (it.key in keys) {
+                                it.copy(
+                                    status = DlStatus.DOWNLOADING,
+                                    waitingForWifi = false,
+                                    waitingForNetwork = false,
+                                )
+                            } else {
+                                it
+                            }
                         }
                         persist()
                         toStart += keys
@@ -289,6 +418,121 @@ object DownloadManager {
             }
             // 锁外启动，避免重新挑任务时挑到已在跑的任务
             toStart.forEach { runTask(it) }
+        }
+    }
+
+    // ── 下载完成通知（P0-04） ──────────────────────────────────────────────
+    private fun addToBatch(comicId: String, orders: Collection<Int>) {
+        if (orders.isEmpty()) return
+        val set = activeBatches.getOrPut(comicId) {
+            Collections.synchronizedSet(mutableSetOf<Int>())
+        }
+        set.addAll(orders)
+    }
+
+    private fun removeFromBatch(comicId: String, order: Int) {
+        val set = activeBatches[comicId] ?: return
+        set.remove(order)
+        if (set.isEmpty()) activeBatches.remove(comicId, set)
+    }
+
+    /** 本批所选章节全部完成才通知；失败/取消/删除都不算完成。恢复清单不建立批次，不补发历史通知。 */
+    private fun maybeNotifyBatch(comicId: String) {
+        val orders = activeBatches[comicId] ?: return
+        if (orders.isEmpty()) {
+            activeBatches.remove(comicId)
+            return
+        }
+        val tasks = _tasks.value.filter { it.task.comicId == comicId }
+        val allDone = orders.all { order ->
+            tasks.any { it.task.order == order && it.isFinished }
+        }
+        if (allDone) {
+            activeBatches.remove(comicId)
+            scope.launch { notifyComplete(comicId, tasks.filter { it.task.order in orders }) }
+        }
+    }
+
+    private suspend fun notifyComplete(comicId: String, tasks: List<TaskRuntime>) {
+        if (!DownloadPrefs.notifyEnabled || tasks.isEmpty()) return
+        try {
+            val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
+                as? NotificationManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    android.app.NotificationChannel(
+                        NOTIFY_CHANNEL_ID,
+                        "下载",
+                        NotificationManager.IMPORTANCE_DEFAULT,
+                    ),
+                )
+            }
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(
+                    appContext,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+            val first = tasks.first().task
+            val title = first.comicTitle.ifBlank { comicId }
+            val text = if (tasks.size == 1) {
+                val ep = first.epTitle.ifBlank { "第 ${first.order} 话" }
+                "《$title》$ep 下载完成"
+            } else {
+                "《$title》本次所选章节已下载完成"
+            }
+            val route = "comic/$comicId"
+            val intent = Intent(appContext, MainActivity::class.java).apply {
+                putExtra("open_route", route)
+                // 显式 Activity + 唯一 data URI：避免不同漫画的 PendingIntent extra 串书
+                data = Uri.parse("jmread://comic/${Uri.encode(comicId)}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pending = PendingIntent.getActivity(
+                appContext,
+                0,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val largeIcon = runCatching {
+                val request = ImageRequest.Builder(appContext)
+                    .data(first.coverUrl.takeIf { it.isNotBlank() })
+                    .allowHardware(false)
+                    .size(256)
+                    .build()
+                Coil.imageLoader(appContext).execute(request).drawable?.toBitmap()
+            }.getOrNull()
+            val builder = NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("下载完成")
+                .setContentText(text)
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+            if (largeIcon != null) builder.setLargeIcon(largeIcon)
+            val tag = "dl_$comicId"
+            manager.notify(tag, tag.hashCode(), builder.build())
+        } catch (e: Exception) {
+            LogStore.log("DownloadManager", "E", "notify complete failed: ${e.message}")
+        }
+    }
+
+    /** 网络不满足：结束当前执行者，任务回到 PENDING 并保留已下载页；不记为失败。 */
+    private suspend fun parkForNetwork(key: String, gate: NetworkGate) {
+        mutex.withLock {
+            _tasks.value = _tasks.value.map {
+                if (it.key == key && it.status == DlStatus.DOWNLOADING) {
+                    it.copy(
+                        status = DlStatus.PENDING,
+                        waitingForWifi = gate == NetworkGate.WAITING_WIFI,
+                        waitingForNetwork = gate == NetworkGate.WAITING_NETWORK,
+                        bytesPerSecond = 0,
+                    )
+                } else {
+                    it
+                }
+            }
         }
     }
 
@@ -304,6 +548,11 @@ object DownloadManager {
                 val t = task.task
                 // 任务在排队与启动之间被删除/重置时不再执行
                 if (task.status != DlStatus.DOWNLOADING) return@launch
+                val startGate = currentGate()
+                if (startGate != NetworkGate.ALLOWED) {
+                    parkForNetwork(key, startGate)
+                    return@launch
+                }
                 try {
                     val pages = JmRepository.chapterPages(t.comicId, t.order)
                     // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
@@ -334,22 +583,55 @@ object DownloadManager {
                             updateProgress(key, i + 1, bytes)
                             continue
                         }
+                        // 每页请求前再检查一次：切换网络后当前文件可完成，但不再发起新页
+                        val pageGate = currentGate()
+                        if (pageGate != NetworkGate.ALLOWED) {
+                            parkForNetwork(key, pageGate)
+                            return@launch
+                        }
                         val n = downloadFile(page.imageUrl, file, runTag)
                         bytes += n
                         updateProgress(key, i + 1, bytes)
                     }
                     mutex.withLock {
                         _tasks.value = _tasks.value.map {
-                            if (it.key == key) it.copy(status = DlStatus.COMPLETED, error = "") else it
+                            if (it.key == key) {
+                                it.copy(
+                                    status = DlStatus.COMPLETED,
+                                    error = "",
+                                    waitingForWifi = false,
+                                    waitingForNetwork = false,
+                                )
+                            } else {
+                                it
+                            }
                         }
                         persist()
                     }
+                    maybeNotifyBatch(t.comicId)
+                } catch (e: NetworkGateException) {
+                    parkForNetwork(key, e.gate)
                 } catch (e: Exception) {
-                    mutex.withLock {
-                        _tasks.value = _tasks.value.map {
-                            if (it.key == key) it.copy(status = DlStatus.FAILED, error = e.message ?: "下载失败") else it
+                    val gateNow = currentGate()
+                    if (gateNow != NetworkGate.ALLOWED) {
+                        // 下载中途断网/切到移动网络：保留进度等待，不标记失败
+                        parkForNetwork(key, gateNow)
+                    } else {
+                        mutex.withLock {
+                            _tasks.value = _tasks.value.map {
+                                if (it.key == key) {
+                                    it.copy(
+                                        status = DlStatus.FAILED,
+                                        error = e.message ?: "下载失败",
+                                        waitingForWifi = false,
+                                        waitingForNetwork = false,
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+                            persist()
                         }
-                        persist()
                     }
                 }
             } finally {
@@ -376,12 +658,14 @@ object DownloadManager {
      * 且各 CDN 会按区域被 DNS 屏蔽（实测 *.jmapiproxy3.cc 被解析到 127.0.0.1）。
      * 只试一个 host 的话，整本书的下载会卡在同一个不可用 CDN 上。
      */
-    private fun downloadFile(urlStr: String, dest: File, runTag: String): Long {
+    private suspend fun downloadFile(urlStr: String, dest: File, runTag: String): Long {
         val first = URL(urlStr)
         // 各 CDN 的路径完全一致（/media/photos/{id}/{file}），只换 host 即可
         val pathAndQuery = first.file
         var lastError: Exception? = null
         for (host in DomainPool.imageHostOrder(first.host)) {
+            val gate = currentGate()
+            if (gate != NetworkGate.ALLOWED) throw NetworkGateException(gate)
             try {
                 val size = fetchToFile("https://$host$pathAndQuery", dest, runTag)
                 DomainPool.markImageGood(host)
@@ -412,7 +696,11 @@ object DownloadManager {
             try {
                 val bytes = conn.inputStream.use { input -> input.readBytes() }
                 // 章节图判定乱序并还原后落盘（Android 渲染按内容解码，文件名扩展名不影响）；未命中原样落盘
-                val processed = ImageScrambler.processBytesIfNeeded(urlStr, bytes)
+                val processed = ImageScrambler.processBytesIfNeeded(
+                    urlStr,
+                    bytes,
+                    maxHeight = MemoryBudget.maxDecodeHeightPx(appContext),
+                )
                 tmp.outputStream().use { output -> output.write(processed) }
                 if (!tmp.renameTo(dest)) {
                     tmp.copyTo(dest, overwrite = true)
@@ -455,13 +743,13 @@ object DownloadManager {
         }
     }
 
-    private fun restoreTasks() {
+    private suspend fun restoreTasks() {
         val f = manifestFile()
         if (!f.exists()) return
         try {
             val saved: List<DownloadTask> =
                 json.decodeFromString(ListSerializer(DownloadTask.serializer()), f.readText())
-            _tasks.value = saved.map { task ->
+            val restored = saved.map { task ->
                 val dir = chapterDir(task.comicId, task.order)
                 // 清理上次运行残留的 .part 半成品：不计入页数，也不再占空间
                 dir.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
@@ -478,6 +766,10 @@ object DownloadManager {
                     totalBytes = bytes,
                     error = if (finished) "" else "上次未完成，可重试",
                 )
+            }
+            mutex.withLock {
+                val current = _tasks.value
+                _tasks.value = mergeRestoredTasks(current, restored, deletedKeys.toSet())
             }
         } catch (e: Exception) {
             // 恢复失败必须可见：静默吞掉会让内存列表为空，之后任意一次 persist
@@ -536,6 +828,18 @@ object DownloadManager {
             }
         }
     }
+}
+
+/**
+ * 恢复清单合并（纯函数，P2-06 单测用）：current 优先；本轮已删除 key 不复活。
+ */
+internal fun mergeRestoredTasks(
+    current: List<TaskRuntime>,
+    restored: List<TaskRuntime>,
+    deletedKeys: Set<String>,
+): List<TaskRuntime> {
+    val currentKeys = current.map { it.key }.toSet()
+    return current + restored.filter { it.key !in currentKeys && it.key !in deletedKeys }
 }
 
 /** 列表序列化辅助 */

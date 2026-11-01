@@ -1,5 +1,11 @@
 package com.jmread.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,11 +50,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.unit.dp
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.core.JmRepository
 import com.jmread.core.scramble.ScrambleCache
 import com.jmread.core.update.UpdateManager
+import com.jmread.data.DownloadPrefs
 import com.jmread.data.GridSettings
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.SourcePrefs
@@ -66,8 +75,42 @@ fun SettingsScreen(
         .collectAsState(initial = true)
     val gridColumns by GridSettings.columnsFlow.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var readerMode by remember { mutableStateOf(ReaderPrefs.current().readerMode) }
     var showAbout by remember { mutableStateOf(false) }
+    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsState(initial = false)
+    val notifyEnabled by DownloadPrefs.notifyEnabledFlow.collectAsState(initial = DownloadPrefs.notifyEnabled)
+    val wifiOnly by DownloadPrefs.wifiOnlyFlow.collectAsState(initial = DownloadPrefs.wifiOnly)
+    var notificationDenied by remember { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            notificationDenied = false
+            scope.launch { DownloadPrefs.setNotifyEnabled(true) }
+        } else {
+            notificationDenied = true
+            scope.launch { DownloadPrefs.setNotifyEnabled(false) }
+            Toast.makeText(context, "未授权通知，下载完成将不提醒", Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun toggleNotify(enabled: Boolean) {
+        if (!enabled) {
+            scope.launch { DownloadPrefs.setNotifyEnabled(false) }
+            notificationDenied = false
+            return
+        }
+        val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            scope.launch { DownloadPrefs.setNotifyEnabled(true) }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -218,6 +261,64 @@ fun SettingsScreen(
                         )
                     },
                 )
+                SettingsRowDivider()
+                ListItem(
+                    headlineContent = { Text("音量键翻页") },
+                    supportingContent = { Text("阅读器内音量上/下键翻上一页/下一页，不改变媒体音量") },
+                    trailingContent = {
+                        Switch(
+                            checked = volumeKeyPaging,
+                            onCheckedChange = {
+                                scope.launch { ReaderPrefs.current().setVolumeKeyPaging(it) }
+                            },
+                        )
+                    },
+                )
+                SettingsRowDivider()
+                ListItem(
+                    headlineContent = { Text("重新显示阅读引导") },
+                    supportingContent = { Text("下次进入阅读器时再次显示点按/缩放/长按操作指引") },
+                    trailingContent = {
+                        TextButton(onClick = {
+                            scope.launch { ReaderPrefs.current().setReaderGuideShown(false) }
+                        }) { Text("重置") }
+                    },
+                )
+            }
+
+            // ── 下载 ────────────────────────────────────────────────
+            SettingsGroup(header = "下载", supporting = "完成提醒与移动网络限制") {
+                ListItem(
+                    headlineContent = { Text("下载完成通知") },
+                    supportingContent = {
+                        Text(
+                            when {
+                                notificationDenied -> "未授权通知权限，下载完成将不提醒"
+                                !notifyEnabled -> "关闭后后台下载完成不会提醒"
+                                else -> "整本/本次所选章节下载完成后发送系统通知"
+                            }
+                        )
+                    },
+                    trailingContent = {
+                        Switch(checked = notifyEnabled, onCheckedChange = ::toggleNotify)
+                    },
+                )
+                SettingsRowDivider()
+                ListItem(
+                    headlineContent = { Text("仅 Wi-Fi 下载") },
+                    supportingContent = {
+                        Text("非 Wi-Fi 默认网络下任务排队等待；切换网络时当前文件可能继续完成")
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = wifiOnly,
+                            onCheckedChange = {
+                                scope.launch { DownloadPrefs.setWifiOnly(it) }
+                                com.jmread.core.download.DownloadManager.refreshNetworkGate()
+                            },
+                        )
+                    },
+                )
             }
 
             // ── 账号 ────────────────────────────────────────────────
@@ -320,7 +421,19 @@ private fun UpdateSection() {
 
     ListItem(
         headlineContent = { Text("检查更新") },
-        supportingContent = { Text("发现新版本时提示下载安装") },
+        supportingContent = {
+            Text(
+                when (val d = dlState) {
+                    is UpdateManager.DownloadUi.Downloading -> {
+                        if (d.progress >= 0f) "正在下载 ${(d.progress * 100).toInt()}%"
+                        else "正在下载…"
+                    }
+                    is UpdateManager.DownloadUi.Done -> "已下载，点击安装"
+                    is UpdateManager.DownloadUi.Failed -> "下载失败，点击重试"
+                    UpdateManager.DownloadUi.Idle -> "发现新版本时提示下载安装"
+                }
+            )
+        },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (state == UpdateUiState.Checking) {
@@ -436,7 +549,7 @@ private fun UpdateSection() {
                             TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
                         }
                     }
-                    UpdateUiState.Downloading -> TextButton(onClick = {}, enabled = false) { Text("下载中…") }
+                    UpdateUiState.Downloading -> TextButton(onClick = { dialogOpen = false }) { Text("后台下载") }
                     else -> {
                         TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
                     }

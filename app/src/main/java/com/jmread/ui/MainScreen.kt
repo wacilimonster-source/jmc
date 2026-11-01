@@ -15,8 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -31,6 +33,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jmread.NavDeeplink
 import com.jmread.data.ReaderPrefs
 import com.jmread.data.SourcePrefs
 import com.jmread.ui.author.AuthorComicsScreen
@@ -42,6 +45,7 @@ import com.jmread.ui.home.HomeScreen
 import com.jmread.ui.login.LoginScreen
 import com.jmread.ui.mine.MineScreen
 import com.jmread.ui.reader.ReaderScreen
+import com.jmread.ui.common.AppSnackbar
 import com.jmread.ui.search.SearchScreen
 import com.jmread.ui.settings.LogScreen
 import com.jmread.ui.settings.SettingsScreen
@@ -84,6 +88,18 @@ fun MainScreen() {
         )
         return
     }
+    // 通知直达：NavHost 就绪后消费；年龄门未确认时保留到确认之后
+    val pendingNavRoute = NavDeeplink.pendingRoute
+    LaunchedEffect(pendingNavRoute) {
+        if (pendingNavRoute != null) {
+            NavDeeplink.pendingRoute = null
+            val id = pendingNavRoute.removePrefix("comic/")
+            if (pendingNavRoute.startsWith("comic/") && id.isNotEmpty() && id.all { it.isDigit() }) {
+                navController.navigate(pendingNavRoute) { launchSingleTop = true }
+            }
+        }
+    }
+
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
@@ -96,6 +112,7 @@ fun MainScreen() {
     // 无登录墙：禁漫全部读链路免登录可用，登录页只在「我的」页点击时进入
 
     Scaffold(
+        snackbarHost = { SnackbarHost(AppSnackbar.hostState) },
         bottomBar = {
             // 阅读页整屏展示：直接移除标签栏，Scaffold 会把这 64dp 还给内容区
             if (!hideBottomBar) {

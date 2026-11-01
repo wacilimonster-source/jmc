@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.Coil
 import coil.request.ImageRequest
+import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
 import com.jmread.core.model.ComicChapter
 import com.jmread.core.model.ComicPage
@@ -17,11 +18,18 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * 阅读器 VM：加载某章全部图片页（当前源）+ 章节列表（切章用）+ 本地进度。
+ *
+ * 进度模型（修订版 P0-01/P1-08）：
+ * - 旧键 progress_{ref} 继续维护，表示“作品最近读到哪”；
+ * - 新增 chapter_progress_{ref} 按稳定 chapterId 记录每章页码，切回旧章可续读；
+ * - 写盘携带读取时的 revision，清除阅读记录会递增 revision，迟到写入直接丢弃。
  */
 class ReaderViewModel : ViewModel() {
 
@@ -30,6 +38,10 @@ class ReaderViewModel : ViewModel() {
 
     private val _chapters = MutableStateFlow<List<ComicChapter>>(emptyList())
     val chapters: StateFlow<List<ComicChapter>> = _chapters
+
+    /** 章节列表是否成功从服务端解析（离线下载兜底/失败都不算） */
+    private val _chaptersResolved = MutableStateFlow(false)
+    val chaptersResolved: StateFlow<Boolean> = _chaptersResolved
 
     private val _epTitle = MutableStateFlow("")
     val epTitle: StateFlow<String> = _epTitle
@@ -45,8 +57,16 @@ class ReaderViewModel : ViewModel() {
     private val _coverUrl = MutableStateFlow("")
     val coverUrl: StateFlow<String> = _coverUrl
 
-    private val _loading = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading
+
+    /** 已下载章节号（IO 预算，随下载任务变化刷新） */
+    private val _downloadedOrders = MutableStateFlow<Set<Int>>(emptySet())
+    val downloadedOrders: StateFlow<Set<Int>> = _downloadedOrders
+
+    /** 已读章节身份集合（稳定 chapterId + order:N 回退） */
+    private val _readChapterKeys = MutableStateFlow<Set<String>>(emptySet())
+    val readChapterKeys: StateFlow<Set<String>> = _readChapterKeys
 
     var comicId: String = ""
         private set
@@ -64,33 +84,79 @@ class ReaderViewModel : ViewModel() {
     private var loadedKey: String = ""
 
     private var loadJob: Job? = null
+    private var downloadedJob: Job? = null
+
+    /** 预取请求句柄：翻页/切章时取消上一窗口，避免离开视口后仍占用带宽与解码 */
+    private val preloadDisposables = mutableListOf<coil.request.Disposable>()
+
+    /** 本作品加载时的修订号；写盘携带它，清除阅读记录后旧写入失效 */
+    @Volatile private var revisionAtLoad: Long = 0L
+
+    /** 本章已打勾的 order（防止末页停留时反复写盘） */
+    private var markedReadOrder: Int = 0
+
+    /** 章节未就绪时用 order 回退打勾，目录回来后补记稳定 ID */
+    private val pendingReadOrders = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
+    init {
+        // 其他入口（书架清除/撤销/详情页）改动已读集合后，抽屉与已读勾即时刷新
+        viewModelScope.launch(Dispatchers.IO) {
+            ReaderPrefs.current().chapterReadVersion.collect {
+                if (ref.isNotBlank()) refreshReadKeysInternal()
+            }
+        }
+    }
 
     fun load(context: Context, ref: String, order: Int) {
-        if (loadedKey == "$ref:$order" && _pages.value.isNotEmpty()) return
+        if (loadedKey == "$ref:$order" && _pages.value.isNotEmpty()) {
+            _loading.value = false
+            return
+        }
+        val previousRef = this.ref
         loadJob?.cancel()
         loadedKey = "$ref:$order"
         this.ref = ref
         this.comicId = ref
         this.currentOrder = order
         _currentOrderFlow.value = order
+        markedReadOrder = 0
+        if (previousRef != ref) {
+            // 换作品：上一本的章节/已读/已下载不能带进新作品
+            _chapters.value = emptyList()
+            _chaptersResolved.value = false
+            _readChapterKeys.value = emptySet()
+            _downloadedOrders.value = emptySet()
+            pendingReadOrders.clear()
+        }
         // 切章/重试时先清空上一章页面：否则加载期间会顶着新章标题展示旧章内容，
         // 失败时也容易把旧页码写成新章进度。
         _pages.value = emptyList()
+        // 同步置 true：清空 pages 与协程启动之间不能闪一帧“加载失败”
+        _loading.value = true
         loadJob = viewModelScope.launch {
-            _loading.value = true
             // 复位上一章未消费的恢复页：加载期间重组只会读到 -1，
             // 恢复 effect 不可能拿着上一章的 pages 抢跑消费
             _pendingRestorePage.value = -1
             try {
                 withContext(Dispatchers.IO) {
-                    // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）。
-                    // 只读入局部变量，待 pages 就绪后再发布（见 _pendingRestorePage 注释）
+                    val revisionStart = runCatching {
+                        ReaderPrefs.current().currentRevision(ref)
+                    }.getOrDefault(0L)
+                    revisionAtLoad = revisionStart
+
+                    // 恢复本章进度：稳定 chapterId 优先，旧作品进度只在对应章节迁移一次
+                    val chapterId = chapterIdFor(order)
                     val restore = runCatchingCancellable {
-                        val saved = ReaderPrefs.current().lastProgressAsync(ref)
-                        // 有本章已存进度则恢复之；无进度（新章）必须显式归位第 1 页：
-                        // 否则翻页器/滚动列表保留上一章页码，防抖还会把旧页码写成新章进度
-                        if (saved != null && saved.order == order) saved.pageIndex else 0
+                        ReaderPrefs.current().chapterProgressAsync(ref, chapterId, order) ?: 0
                     }.getOrDefault(0)
+                    val restoreSafe = if (runCatching {
+                            ReaderPrefs.current().currentRevision(ref)
+                        }.getOrDefault(-1L) == revisionStart
+                    ) {
+                        restore
+                    } else {
+                        0
+                    }
 
                     // 本地页：排除写入中的 .part；只有「完整下载」才优先纯本地。
                     // 不完整时仍尝试网络；网络失败再退回本地已下载部分（能看多少看多少）。
@@ -129,15 +195,29 @@ class ReaderViewModel : ViewModel() {
                     }
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
-                    _pendingRestorePage.value = restore
+                    _pendingRestorePage.value = restoreSafe
 
                     // 章节列表独立失败：离线/详情接口故障不应连累已经拿到的页面。
                     val remoteChapters = runCatchingCancellable { JmRepository.chapters(comicId) }
-                        .getOrNull()
-                        .orEmpty()
-                    _chapters.value = remoteChapters.ifEmpty {
-                        // 离线兜底：用已下载任务生成可切换的章节表
-                        com.jmread.core.download.DownloadManager.comicTasks(comicId)
+                    if (remoteChapters.isSuccess) {
+                        val list = remoteChapters.getOrThrow()
+                        _chapters.value = list
+                        _chaptersResolved.value = true
+                        // 目录有稳定 ID 后，旧的 order 回退身份无法可靠对应，清除歧义标记
+                        if (list.isNotEmpty() && list.all { it.id.isNotBlank() }) {
+                            ReaderPrefs.current().dropOrderFallbackReads(comicId)
+                        }
+                        // 当前章在读时先用 order 回退打勾的，目录回来后补记稳定 ID
+                        pendingReadOrders.toList().forEach { pendingOrder ->
+                            val target = list.firstOrNull { it.order == pendingOrder }
+                            if (target != null && target.id.isNotBlank()) {
+                                ReaderPrefs.current().markChapterRead(comicId, target.id, target.order)
+                                pendingReadOrders.remove(pendingOrder)
+                            }
+                        }
+                    } else {
+                        _chaptersResolved.value = false
+                        _chapters.value = com.jmread.core.download.DownloadManager.comicTasks(comicId)
                             .filter {
                                 com.jmread.core.download.DownloadManager
                                     .isDownloaded(comicId, it.task.order)
@@ -150,6 +230,8 @@ class ReaderViewModel : ViewModel() {
                                 )
                             }
                     }
+                    refreshReadKeysInternal()
+                    observeDownloaded(comicId)
 
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
@@ -196,8 +278,63 @@ class ReaderViewModel : ViewModel() {
                 if (isActive) _loading.value = false
             }
         }
-        // 预取章节标题无需等 chapters 加载完：标题留空则由 UI 兜底
-        // （进度恢复已并入上方 IO 块，避免在主线程同步读盘）
+    }
+
+    /** 章节列表失败后的抽屉重试入口：只重拉目录，不动当前页 */
+    fun retryChapters() {
+        val refNow = ref
+        if (refNow.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val remote = runCatchingCancellable { JmRepository.chapters(refNow) }
+            if (remote.isSuccess) {
+                val list = remote.getOrThrow()
+                _chapters.value = list
+                _chaptersResolved.value = true
+                if (list.isNotEmpty() && list.all { it.id.isNotBlank() }) {
+                    ReaderPrefs.current().dropOrderFallbackReads(refNow)
+                }
+                pendingReadOrders.toList().forEach { pendingOrder ->
+                    val target = list.firstOrNull { it.order == pendingOrder }
+                    if (target != null && target.id.isNotBlank()) {
+                        ReaderPrefs.current().markChapterRead(refNow, target.id, target.order)
+                        pendingReadOrders.remove(pendingOrder)
+                    }
+                }
+            } else {
+                _chaptersResolved.value = false
+            }
+            refreshReadKeysInternal()
+        }
+    }
+
+    private suspend fun refreshReadKeysInternal() {
+        val refNow = ref
+        if (refNow.isBlank()) return
+        val keys = runCatching { ReaderPrefs.current().readChapterKeysAsync(refNow) }
+            .getOrDefault(emptySet())
+        _readChapterKeys.value = keys
+    }
+
+    private fun observeDownloaded(comicId: String) {
+        downloadedJob?.cancel()
+        downloadedJob = viewModelScope.launch(Dispatchers.IO) {
+            combine(_chapters, com.jmread.core.download.DownloadManager.tasks) { chs, _ -> chs }
+                .collectLatest { chs ->
+                    val set = chs.asSequence()
+                        .map { it.order }
+                        .filter { com.jmread.core.download.DownloadManager.isDownloaded(comicId, it) }
+                        .toSet()
+                    _downloadedOrders.value = set
+                }
+        }
+    }
+
+    /** 当前章节的稳定 ID（章节未成功解析/离线兜底时返回 null，使用 order 回退身份） */
+    private fun chapterIdFor(order: Int): String? {
+        if (!_chaptersResolved.value) return null
+        return _chapters.value.firstOrNull { it.order == order }
+            ?.id
+            ?.takeIf { it.isNotBlank() }
     }
 
     /** 等待 pages 加载完成后由 UI 消费的恢复页（-1 = 无需恢复）。
@@ -235,12 +372,23 @@ class ReaderViewModel : ViewModel() {
         val pages = _pages.value
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
+        val orderNow = currentOrder
+        val chapterId = chapterIdFor(orderNow)
         if (final) {
             val refNow = ref
-            val orderNow = currentOrder
+            val revision = revisionAtLoad
             ReaderPrefs.current().ioScope.launch {
+                val ok = runCatching {
+                    ReaderPrefs.current().saveProgress(refNow, orderNow, safePage, revision)
+                }.getOrDefault(false)
                 runCatching {
-                    ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
+                    ReaderPrefs.current().saveChapterProgress(refNow, chapterId, orderNow, safePage, revision)
+                }
+                if (!ok) {
+                    // 清除阅读记录已发生：本次写入被丢弃，后续翻页用新修订号继续
+                    revisionAtLoad = runCatching {
+                        ReaderPrefs.current().currentRevision(refNow)
+                    }.getOrDefault(revision)
                 }
                 com.jmread.data.ReaderStatus.markRead(refNow)
             }
@@ -249,19 +397,48 @@ class ReaderViewModel : ViewModel() {
         progressJob = viewModelScope.launch(Dispatchers.IO) {
             // runCatchingCancellable 会重新抛出取消：被后续 saveProgress 取代时立即停止，
             // 而普通写盘失败仍按原行为继续更新内存已读标记
+            val ok = runCatchingCancellable {
+                ReaderPrefs.current().saveProgress(ref, orderNow, safePage, revisionAtLoad)
+            }.getOrDefault(false)
             runCatchingCancellable {
-                ReaderPrefs.current().saveProgress(ref, currentOrder, safePage)
+                ReaderPrefs.current().saveChapterProgress(
+                    ref, chapterId, orderNow, safePage, revisionAtLoad,
+                )
+            }
+            if (!ok) {
+                revisionAtLoad = runCatching {
+                    ReaderPrefs.current().currentRevision(ref)
+                }.getOrDefault(revisionAtLoad)
             }
             // 打开过阅读器即已读（内存状态只升不降）
             com.jmread.data.ReaderStatus.markRead(ref)
             // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
             val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
-            if (currentOrder == lastOrder && safePage >= pages.size - 1) {
+            if (orderNow == lastOrder && safePage >= pages.size - 1) {
                 if (com.jmread.data.ReaderStatus.of(ref) != com.jmread.data.ReadStatus.FINISHED) {
                     runCatchingCancellable { ReaderPrefs.current().saveFinished(ref) }
                     com.jmread.data.ReaderStatus.markFinished(ref)
                 }
             }
+        }
+    }
+
+    /**
+     * 标记当前章已读（P1-05）。
+     *
+     * 只能由 UI 在“末页实际可见且图片加载成功”时调用；打开章节、预取、失败占位都不算。
+     * 章节目录尚未成功解析时先写 order 回退身份，目录回来后补记稳定 chapterId。
+     */
+    fun markChapterRead() {
+        val orderNow = currentOrder
+        if (markedReadOrder == orderNow) return
+        markedReadOrder = orderNow
+        val chapterId = chapterIdFor(orderNow)
+        if (chapterId == null) pendingReadOrders += orderNow
+        val refNow = ref
+        viewModelScope.launch(Dispatchers.IO) {
+            ReaderPrefs.current().markChapterRead(refNow, chapterId, orderNow)
+            refreshReadKeysInternal()
         }
     }
 
@@ -318,44 +495,41 @@ class ReaderViewModel : ViewModel() {
     /**
      * 预取前后 N 页图片到内存/磁盘缓存（弱网也顺滑）。
      *
-     * 必须与展示请求使用**相同的解码尺寸上限**：此前预取不带 .size()，
+     * 必须与展示请求使用**相同的解码尺寸**：此前预取不带 .size()，
      * Coil 会按原图尺寸解码，且显式 memoryCacheKey(url) 与展示请求共用同一缓存键，
-     * 导致超大长图以原图进入内存缓存、解码上限失效（OOM 风险），
-     * 也会让 WebtoonSplitPage 的比例计算因缓存尺寸不一致而失准。
+     * 导致超大长图以原图进入内存缓存、解码上限失效（OOM 风险）。
+     * 低内存设备或系统压力回调后 range 降为 0，只保留当前页。
      */
-    fun preloadNearby(context: Context, visiblePage: Int, range: Int = 2) {
+    fun preloadNearby(
+        context: Context,
+        visiblePage: Int,
+        scrollMode: Boolean,
+        range: Int = 2,
+    ) {
+        if (MemoryBudget.shouldDisablePrefetch()) return
         val pages = _pages.value
+        // 先取消上一窗口的预取（P2-08：离开当前页/章节后不再保留在途预取）
+        preloadDisposables.forEach { runCatching { it.dispose() } }
+        preloadDisposables.clear()
         if (pages.isEmpty()) return
         val loader = Coil.imageLoader(context)
-        val cap = maxDecodeHeightPx(context)
+        val size = if (scrollMode) webtoonDecodeSize(context) else pagerDecodeSize(context)
         for (i in (visiblePage - range)..(visiblePage + range)) {
             if (i < 0 || i >= pages.size) continue
             val url = pages[i].imageUrl
             // 本地文件（已下载）无需预取
             if (url.startsWith("file:")) continue
-            // 与展示请求共用同一缓存键（章节图是 #de，封面/手动覆盖用原 URL）
+            // 与展示请求共用同一缓存身份（含自动/强制还原模式；重试次数不进入 key）
             val cacheKey = com.jmread.core.scramble.jmImageCacheKey(url)
-            loader.enqueue(
+            preloadDisposables += loader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
-                    .size(coil.size.Size(width = MAX_DECODE_WIDTH_PX, height = cap))
+                    .size(size)
                     .memoryCacheKey(cacheKey)
                     .diskCacheKey(cacheKey)
+                    .crossfade(false)
                     .build()
             )
         }
     }
-
-    /** 与 WebtoonSplitPage 保持一致的解码高度上限（按设备内存分级） */
-    private fun maxDecodeHeightPx(context: Context): Int {
-        val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
-            as? android.app.ActivityManager
-        val memClass = am?.memoryClass ?: 192
-        return when {
-            memClass >= 256 -> 8192
-            memClass >= 128 -> 6144
-            else -> 4096
-        }
-    }
-
 }

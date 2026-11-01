@@ -94,6 +94,7 @@ fun HomeScreen(
     val rankError by viewModel.rankError.collectAsState()
     val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
     val rankTotal by viewModel.rankTotal.collectAsState()
+    val rankCacheAt by viewModel.rankCacheAt.collectAsState()
     val promoteSections by viewModel.promoteSections.collectAsState()
     val weeklySection by viewModel.weeklySection.collectAsState()
     val sectionsLoading by viewModel.sectionsLoading.collectAsState()
@@ -298,6 +299,7 @@ fun HomeScreen(
                     loading = rankLoading,
                     error = rankError,
                     total = rankTotal,
+                    cacheAt = rankCacheAt,
                     columns = gridColumns,
                     promoteSections = promoteSections,
                     weeklySection = weeklySection,
@@ -434,6 +436,7 @@ private fun RankTab(
     loading: Boolean,
     error: String?,
     total: Int,
+    cacheAt: Long?,
     columns: Int,
     promoteSections: List<HomePromoteSection>,
     weeklySection: HomeWeeklySection?,
@@ -593,6 +596,12 @@ private fun RankTab(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            }
+            if (rankSelected && cacheAt != null) {
+                InlineErrorBanner(
+                    message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}前的缓存",
+                    onRetry = onRefreshRank,
                 )
             }
 
@@ -795,3 +804,14 @@ private fun RandomTab(
     }
 }
 
+/** 缓存新鲜度文案（P1-07）：刚刚 / N 分钟前 / N 小时前 / N 天前 */
+private fun rankCacheAgeText(at: Long): String {
+    val delta = (System.currentTimeMillis() - at).coerceAtLeast(0L)
+    val minutes = delta / 60_000
+    return when {
+        minutes < 1 -> "刚刚"
+        minutes < 60 -> "${minutes}分钟前"
+        minutes < 60 * 24 -> "${minutes / 60}小时前"
+        else -> "${minutes / (60 * 24)}天前"
+    }
+}
