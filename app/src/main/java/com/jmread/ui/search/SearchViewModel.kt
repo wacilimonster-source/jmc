@@ -193,6 +193,8 @@ class SearchViewModel : ViewModel() {
         _endReached.value = false
         _keyword.value = keyword
         _currentPage.value = 1
+        _totalPages.value = 1
+        _total.value = 0
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()
         _multiSearchComplete.value = false
@@ -275,8 +277,9 @@ class SearchViewModel : ViewModel() {
                 if (items.isNotEmpty()) {
                     wordIdSets[word]?.addAll(items.map { it.id })
                     _multiAllComics.addAll(items)
-                    wordProgress[word] = page
                 }
+                // 无论成功/失败/空页，这一页都算尝试过：否则失败页会被阶段 2 无限重试
+                wordProgress[word] = page
             }
             val intersection = computeIntersection(wordIdSets, words)
             _confirmedIntersectionIds = intersection
@@ -293,7 +296,7 @@ class SearchViewModel : ViewModel() {
                 }
                 if (pendingWords.isEmpty()) break
                 madeProgress = true
-                for ((w, _) in pendingWords) {
+                for ((w, totalPages) in pendingWords) {
                     val nextPage = (wordProgress[w] ?: 0) + 1
                     val items = com.jmread.core.runCatchingCancellable {
                         searchWithRetry(w, nextPage)
@@ -302,6 +305,9 @@ class SearchViewModel : ViewModel() {
                         _multiAllComics.addAll(items)
                         wordIdSets[w]?.addAll(items.map { it.id })
                         wordProgress[w] = nextPage
+                    } else {
+                        // 失败或空页：把该词视为已到末尾，避免同一页无限重试
+                        wordProgress[w] = totalPages
                     }
                 }
                 val newIntersection = computeIntersection(wordIdSets, words)
@@ -338,26 +344,30 @@ class SearchViewModel : ViewModel() {
 
     /** 发布中间结果（够 1 页即显示），后台继续加载 */
     private fun publishDisplay(intersection: Set<String>, complete: Boolean) {
-        val display = buildDisplayForPage(1)
-        if (display.isEmpty()) return
-        val newTotal = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
-        if (display == _comics.value && newTotal == _totalPages.value) return
+        val totalPages = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        val page = _currentPage.value.coerceIn(1, totalPages)
+        val display = buildDisplayForPage(page)
+        if (display.isEmpty() && _comics.value.isEmpty()) return
+        _currentPage.value = page
         _comics.value = display
         _loading.value = false
         _multiLoading.value = !complete
-        _endReached.value = complete
-        _totalPages.value = newTotal
+        _endReached.value = complete && page >= totalPages
+        _totalPages.value = totalPages
         _total.value = intersection.size
     }
 
     /** 发布最终结果，多词搜索完成 */
     private fun publishFinalResult(intersection: Set<String>) {
         _confirmedIntersectionIds = intersection
-        _comics.value = buildDisplayForPage(1)
+        val totalPages = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        val page = _currentPage.value.coerceIn(1, totalPages)
+        _currentPage.value = page
+        _comics.value = buildDisplayForPage(page)
         _loading.value = false
         _multiLoading.value = false
-        _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
-        _endReached.value = _totalPages.value <= 1
+        _totalPages.value = totalPages
+        _endReached.value = page >= totalPages
         _multiSearchComplete.value = true
         _total.value = intersection.size
     }
@@ -367,9 +377,19 @@ class SearchViewModel : ViewModel() {
         _sort.value = sort
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.size > 1 && _dimension.value == SearchDimension.SITE) {
-            _currentPage.value = 1
-            _comics.value = buildDisplayForPage(1)
-            _endReached.value = _totalPages.value <= 1
+            if (_multiSearchComplete.value) {
+                // 已加载完成：本地重排即可
+                _currentPage.value = 1
+                val totalPages = ((_confirmedIntersectionIds.size + pageSize - 1) / pageSize)
+                    .coerceAtLeast(1)
+                _totalPages.value = totalPages
+                _comics.value = buildDisplayForPage(1)
+                _endReached.value = totalPages <= 1
+            } else {
+                // 后台仍在拉取：旧任务按旧排序发布的结果会被 activeKey 丢弃，
+                // 必须取消并重启，否则 multiLoading 永远停在 true。
+                search(_keyword.value, page = 1)
+            }
         } else {
             search(_keyword.value, page = 1)
         }
@@ -380,9 +400,10 @@ class SearchViewModel : ViewModel() {
         _shouldScrollToTop.value++
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.size > 1 && _dimension.value == SearchDimension.SITE) {
-            _currentPage.value = page
-            _comics.value = buildDisplayForPage(page)
-            _endReached.value = page >= _totalPages.value
+            val target = page.coerceIn(1, _totalPages.value.coerceAtLeast(1))
+            _currentPage.value = target
+            _comics.value = buildDisplayForPage(target)
+            _endReached.value = target >= _totalPages.value
         } else {
             search(_keyword.value, page)
         }
@@ -410,6 +431,7 @@ class SearchViewModel : ViewModel() {
             searchJob?.cancel()
             searchJob = viewModelScope.launch {
                 _loading.value = true
+                _searchError.value = null
                 try {
                     val result = JmRepository.searchDimension(
                         keyword = keyword,
@@ -418,14 +440,19 @@ class SearchViewModel : ViewModel() {
                         mainTag = _dimension.value.mainTag,
                     )
                     if (_activeSearchKey != key()) return@launch
-                    _comics.value = _comics.value + result.items
+                    _comics.value = (_comics.value + result.items).distinctBy { it.id }
                     _totalPages.value = result.pages.coerceAtLeast(1)
                     _currentPage.value = next
                     _endReached.value = next >= result.pages
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _endReached.value = true
+                    // 加载更多失败不能伪装成“到底了”：保留可重试状态并显示错误
+                    if (_activeSearchKey == key()) {
+                        _searchError.value = e.message?.takeIf { it.isNotBlank() }
+                            ?: "加载更多失败，请稍后重试"
+                        _endReached.value = false
+                    }
                 } finally {
                     if (isActive) _loading.value = false
                 }

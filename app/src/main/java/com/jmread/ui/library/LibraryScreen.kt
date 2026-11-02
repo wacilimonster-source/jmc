@@ -76,17 +76,18 @@ class LibraryViewModel : ViewModel() {
 
     init {
         // 进入书架：补拉云端首页 + flush 收藏同步队列（幂等，未登录自动跳过）
-        refresh()
+        refresh(force = false)
     }
 
     fun setFilter(f: LibraryFilter) {
         _filter.value = f
     }
 
-    fun refresh() {
+    /** 用户点刷新/错误重试：必须强制重拉，否则 sessionLoaded 会让整个进程只拉一次 */
+    fun refresh(force: Boolean = true) {
         viewModelScope.launch {
             LibraryRepository.flushPendingSync()
-            LibraryRepository.refreshCloud()
+            LibraryRepository.refreshCloud(force = force)
         }
     }
 
@@ -94,16 +95,24 @@ class LibraryViewModel : ViewModel() {
         viewModelScope.launch { LibraryRepository.loadMoreCloud() }
     }
 
+    /** 在途收藏的 comicId：心形快速双击时只放行第一次翻转 */
+    private val toggling = mutableSetOf<String>()
+
     /** 卡片心形：与详情页共用同一条双写路径 */
     fun toggleCollected(item: LibraryItem) {
+        if (!toggling.add(item.comicId)) return
         viewModelScope.launch {
-            LibraryRepository.setCollected(
-                comicId = item.comicId,
-                target = !item.collected,
-                title = item.title,
-                author = item.author,
-                coverUrl = item.coverUrl ?: "",
-            )
+            try {
+                LibraryRepository.setCollected(
+                    comicId = item.comicId,
+                    target = !item.collected,
+                    title = item.title,
+                    author = item.author,
+                    coverUrl = item.coverUrl ?: "",
+                )
+            } finally {
+                toggling.remove(item.comicId)
+            }
         }
     }
 
@@ -146,7 +155,7 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::refresh) {
+                    IconButton(onClick = { viewModel.refresh() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
                 },
@@ -175,7 +184,7 @@ fun LibraryScreen(
             if (cloud.error != null) {
                 InlineErrorBanner(
                     message = "云端数据同步失败，当前显示本地内容",
-                    onRetry = viewModel::refresh,
+                    onRetry = { viewModel.refresh() },
                 )
             }
             Row(

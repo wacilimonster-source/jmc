@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.Coil
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
 import com.jmread.core.model.ComicChapter
@@ -86,6 +87,12 @@ class ReaderViewModel : ViewModel() {
     private var loadJob: Job? = null
     private var downloadedJob: Job? = null
 
+    /** 加载代际：切章后旧协程即使网络刚刚返回，也不得发布页面/恢复页/目录 */
+    private var loadGeneration = 0
+
+    /** 当前 pages 是否来自完整来源（完整离线章节或在线整章）；部分本地页不得据此判读完 */
+    @Volatile private var pagesComplete = false
+
     /** 预取请求句柄：翻页/切章时取消上一窗口，避免离开视口后仍占用带宽与解码 */
     private val preloadDisposables = mutableListOf<coil.request.Disposable>()
 
@@ -114,6 +121,7 @@ class ReaderViewModel : ViewModel() {
         }
         val previousRef = this.ref
         loadJob?.cancel()
+        val gen = ++loadGeneration
         loadedKey = "$ref:$order"
         this.ref = ref
         this.comicId = ref
@@ -176,15 +184,18 @@ class ReaderViewModel : ViewModel() {
                     }
                     val localComplete = localPages.isNotEmpty() &&
                         com.jmread.core.download.DownloadManager.isDownloaded(comicId, order)
+                    if (gen != loadGeneration) return@withContext
                     if (localComplete) {
                         _pages.value = localPages
+                        pagesComplete = true
                     } else {
                         val remotePages = runCatchingCancellable {
                             JmRepository.chapterPages(comicId, order)
                         }
-                        _pages.value = remotePages.getOrNull()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: localPages
+                        if (gen != loadGeneration) return@withContext
+                        val online = remotePages.getOrNull()?.takeIf { it.isNotEmpty() }
+                        _pages.value = online ?: localPages
+                        pagesComplete = online != null
                         if (remotePages.isFailure && localPages.isNotEmpty()) {
                             LogStore.log(
                                 "reader", "W",
@@ -193,19 +204,22 @@ class ReaderViewModel : ViewModel() {
                             )
                         }
                     }
+                    if (gen != loadGeneration) return@withContext
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
                     _pendingRestorePage.value = restoreSafe
 
                     // 章节列表独立失败：离线/详情接口故障不应连累已经拿到的页面。
                     val remoteChapters = runCatchingCancellable { JmRepository.chapters(comicId) }
+                    if (gen != loadGeneration) return@withContext
                     if (remoteChapters.isSuccess) {
                         val list = remoteChapters.getOrThrow()
                         _chapters.value = list
                         _chaptersResolved.value = true
-                        // 目录有稳定 ID 后，旧的 order 回退身份无法可靠对应，清除歧义标记
+                        // 目录有稳定 ID 后，先把离线期间按 order 记下的勾迁移到稳定 ID，
+                        // 再清掉剩余歧义标记（此前直接清空会永久丢失离线已读状态）
                         if (list.isNotEmpty() && list.all { it.id.isNotBlank() }) {
-                            ReaderPrefs.current().dropOrderFallbackReads(comicId)
+                            migrateOrderFallbackReads(comicId, list)
                         }
                         // 当前章在读时先用 order 回退打勾的，目录回来后补记稳定 ID
                         pendingReadOrders.toList().forEach { pendingOrder ->
@@ -230,6 +244,7 @@ class ReaderViewModel : ViewModel() {
                                 )
                             }
                     }
+                    if (gen != loadGeneration) return@withContext
                     refreshReadKeysInternal()
                     observeDownloaded(comicId)
 
@@ -237,6 +252,7 @@ class ReaderViewModel : ViewModel() {
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
                         runCatchingCancellable {
                             val detail = JmRepository.comicDetail(comicId)
+                            if (gen != loadGeneration) return@withContext
                             if (_coverUrl.value.isBlank()) {
                                 _coverUrl.value = detail.coverUrl.orEmpty()
                             }
@@ -247,6 +263,7 @@ class ReaderViewModel : ViewModel() {
                                 _comicAuthor.value = detail.author
                             }
                         }
+                        if (gen != loadGeneration) return@withContext
                         // 离线时详情不可用：用下载任务里的标题/封面兜底，避免历史记录只剩「第 N 话」
                         if (_comicTitle.value.isBlank() || _coverUrl.value.isBlank()) {
                             val t = com.jmread.core.download.DownloadManager.comicTasks(comicId)
@@ -260,7 +277,9 @@ class ReaderViewModel : ViewModel() {
                         }
                     }
                 }
-                _epTitle.value = _chapters.value.firstOrNull { it.order == order }?.title.orEmpty()
+                if (gen == loadGeneration) {
+                    _epTitle.value = _chapters.value.firstOrNull { it.order == order }?.title.orEmpty()
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // 切章/退出时取消旧加载：必须放行，否则旧协程会继续写 _pages/_loading
                 throw e
@@ -268,14 +287,14 @@ class ReaderViewModel : ViewModel() {
                 // 页面已在本章内尽力获取；只有彻底没拿到任何页时才落日志。
                 // 绝不能像旧实现那样无条件清空：离线打开已下载章节时，
                 // 章节列表请求失败会把刚读出的本地页一起抹掉。
-                if (_pages.value.isEmpty()) {
+                if (gen == loadGeneration && _pages.value.isEmpty()) {
                     LogStore.log(
                         "reader", "W",
                         "章节加载失败 comic=$comicId order=$order: ${e.message?.take(80)}",
                     )
                 }
             } finally {
-                if (isActive) _loading.value = false
+                if (gen == loadGeneration && isActive) _loading.value = false
             }
         }
     }
@@ -284,14 +303,16 @@ class ReaderViewModel : ViewModel() {
     fun retryChapters() {
         val refNow = ref
         if (refNow.isBlank()) return
+        val gen = loadGeneration
         viewModelScope.launch(Dispatchers.IO) {
             val remote = runCatchingCancellable { JmRepository.chapters(refNow) }
+            if (gen != loadGeneration) return@launch
             if (remote.isSuccess) {
                 val list = remote.getOrThrow()
                 _chapters.value = list
                 _chaptersResolved.value = true
                 if (list.isNotEmpty() && list.all { it.id.isNotBlank() }) {
-                    ReaderPrefs.current().dropOrderFallbackReads(refNow)
+                    migrateOrderFallbackReads(refNow, list)
                 }
                 pendingReadOrders.toList().forEach { pendingOrder ->
                     val target = list.firstOrNull { it.order == pendingOrder }
@@ -300,11 +321,27 @@ class ReaderViewModel : ViewModel() {
                         pendingReadOrders.remove(pendingOrder)
                     }
                 }
+                _epTitle.value = list.firstOrNull { it.order == currentOrder }?.title.orEmpty()
             } else {
                 _chaptersResolved.value = false
             }
             refreshReadKeysInternal()
         }
+    }
+
+    /**
+     * 目录拿到稳定 ID 后，把离线期间按 order 记下的已读勾迁移过去再清除回退标记。
+     * 直接 clear 会把上次离线阅读的勾永久丢掉。
+     */
+    private suspend fun migrateOrderFallbackReads(ref: String, chapters: List<ComicChapter>) {
+        val doc = runCatching { ReaderPrefs.current().chaptersReadDoc(ref) }.getOrNull() ?: return
+        doc.orders.forEach { order ->
+            val target = chapters.firstOrNull { it.order == order && it.id.isNotBlank() }
+            if (target != null) {
+                ReaderPrefs.current().markChapterRead(ref, target.id, order)
+            }
+        }
+        ReaderPrefs.current().dropOrderFallbackReads(ref)
     }
 
     private suspend fun refreshReadKeysInternal() {
@@ -374,9 +411,18 @@ class ReaderViewModel : ViewModel() {
         val safePage = pageIndex.coerceAtLeast(0)
         val orderNow = currentOrder
         val chapterId = chapterIdFor(orderNow)
+        // 只有“目录已解析 + 页面来源完整”才允许判读完：
+        // 离线兜底目录只含已下载章节，部分本地页也不代表章节真的读完。
+        val lastOrder = if (_chaptersResolved.value) {
+            _chapters.value.maxOfOrNull { it.order }
+        } else {
+            null
+        }
+        val complete = pagesComplete
         if (final) {
             val refNow = ref
             val revision = revisionAtLoad
+            val reachedEnd = complete && lastOrder == orderNow && safePage >= pages.size - 1
             ReaderPrefs.current().ioScope.launch {
                 val ok = runCatching {
                     ReaderPrefs.current().saveProgress(refNow, orderNow, safePage, revision)
@@ -391,6 +437,12 @@ class ReaderViewModel : ViewModel() {
                     }.getOrDefault(revision)
                 }
                 com.jmread.data.ReaderStatus.markRead(refNow)
+                if (reachedEnd &&
+                    com.jmread.data.ReaderStatus.of(refNow) != com.jmread.data.ReadStatus.FINISHED
+                ) {
+                    runCatching { ReaderPrefs.current().saveFinished(refNow) }
+                    com.jmread.data.ReaderStatus.markFinished(refNow)
+                }
             }
             return
         }
@@ -413,8 +465,7 @@ class ReaderViewModel : ViewModel() {
             // 打开过阅读器即已读（内存状态只升不降）
             com.jmread.data.ReaderStatus.markRead(ref)
             // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
-            val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
-            if (orderNow == lastOrder && safePage >= pages.size - 1) {
+            if (complete && lastOrder == orderNow && safePage >= pages.size - 1) {
                 if (com.jmread.data.ReaderStatus.of(ref) != com.jmread.data.ReadStatus.FINISHED) {
                     runCatchingCancellable { ReaderPrefs.current().saveFinished(ref) }
                     com.jmread.data.ReaderStatus.markFinished(ref)
@@ -454,6 +505,9 @@ class ReaderViewModel : ViewModel() {
      * 避免直接进章节、详情未返回就退出时在历史里留下孤立的"第N话"。
      */
     fun recordRecentRead(pageIndex: Int, final: Boolean = false) {
+        // 页面还没加载出来时不要写历史：否则打开章节立刻切后台会留下 page 0，
+        // 覆盖书架里真实的续读位置。
+        if (_pages.value.isEmpty()) return
         lastRecordedPage = pageIndex.coerceAtLeast(0)
         recentJob?.cancel()
         val refNow = ref
@@ -506,11 +560,11 @@ class ReaderViewModel : ViewModel() {
         scrollMode: Boolean,
         range: Int = 2,
     ) {
-        if (MemoryBudget.shouldDisablePrefetch()) return
-        val pages = _pages.value
         // 先取消上一窗口的预取（P2-08：离开当前页/章节后不再保留在途预取）
         preloadDisposables.forEach { runCatching { it.dispose() } }
         preloadDisposables.clear()
+        if (MemoryBudget.shouldDisablePrefetch()) return
+        val pages = _pages.value
         if (pages.isEmpty()) return
         val loader = Coil.imageLoader(context)
         val size = if (scrollMode) webtoonDecodeSize(context) else pagerDecodeSize(context)
@@ -525,11 +579,20 @@ class ReaderViewModel : ViewModel() {
                 ImageRequest.Builder(context)
                     .data(url)
                     .size(size)
+                    // 显式 Size + AUTOMATIC 会把小图放大到目标尺寸；阅读器只缩不放
+                    .precision(Precision.INEXACT)
                     .memoryCacheKey(cacheKey)
                     .diskCacheKey(cacheKey)
                     .crossfade(false)
                     .build()
             )
         }
+    }
+
+    override fun onCleared() {
+        // 退出阅读器后不再保留全尺寸图片下载/解码
+        preloadDisposables.forEach { runCatching { it.dispose() } }
+        preloadDisposables.clear()
+        super.onCleared()
     }
 }

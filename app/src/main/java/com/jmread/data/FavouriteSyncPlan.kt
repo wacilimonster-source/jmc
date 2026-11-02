@@ -20,7 +20,7 @@ object FavouriteSyncPlan {
         DROP,
     }
 
-    data class Step(val comicId: String, val action: Action)
+    data class Step(val comicId: String, val action: Action, val ts: Long = 0L)
 
     fun plan(cloudIds: Set<String>, pending: List<FavouriteSyncQueue.PendingOp>): List<Step> = pending.map { op ->
         val inCloud = op.comicId in cloudIds
@@ -31,6 +31,7 @@ object FavouriteSyncPlan {
                 !op.add && inCloud -> Action.TOGGLE_REMOVE
                 else -> Action.DROP
             },
+            ts = op.ts,
         )
     }
 }

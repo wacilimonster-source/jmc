@@ -16,6 +16,7 @@ import com.jmread.core.log.LogStore
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.network.BcTls
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -109,11 +110,18 @@ class JmImageFetcher(
         }
         val cleanUrl = ImageScrambler.stripManualSuffix(data).substringBefore("#retry")
         val cacheKey = jmImageCacheKey(data)
-        val cached = readFromDisk(cacheKey)
+        // 手动重试（#retryN）与管线级 WRITE_ONLY 重试都必须绕过磁盘缓存：
+        // key 刻意不含 retry 计数，若仍先读缓存，坏字节永远无法被重新下载覆盖。
+        val bypassDisk = data.contains("#retry") || !options.diskCachePolicy.readEnabled
+        val cached = if (bypassDisk) null else readFromDisk(cacheKey)
         val (processed, source) = if (cached != null) {
             cached to DataSource.DISK
         } else {
             val bytes = download(cleanUrl)
+            // 2xx 也可能是风控页/半截响应；非图片字节绝不能落盘，否则重试也会命中同一份坏缓存
+            if (!ImageFormatDetector.isImage(bytes)) {
+                throw IOException("图片响应不是有效图片（${bytes.size} bytes）: $cleanUrl")
+            }
             val out = if (ImageScrambler.isPhotoUrl(cleanUrl)) {
                 // 章节图判定乱序并还原后再落盘/解码（离线与在线必须一致）
                 ImageScrambler.processBytesIfNeeded(
@@ -125,7 +133,7 @@ class JmImageFetcher(
             } else {
                 bytes
             }
-            writeToDisk(cacheKey, out)
+            if (options.diskCachePolicy.writeEnabled) writeToDisk(cacheKey, out)
             out to DataSource.NETWORK
         }
         SourceResult(
@@ -182,10 +190,18 @@ internal suspend fun fetchJmImageBytes(url: String): ByteArray =
         val pathAndQuery = parsed.encodedPath + (parsed.encodedQuery?.let { "?$it" } ?: "")
         var lastError: Exception? = null
         for (host in DomainPool.imageHostOrder(parsed.host)) {
+            // 页面滚走/切章后不再继续下载剩余的 CDN 候选
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             try {
                 val bytes = fetchJmImageOnce("https://$host$pathAndQuery")
+                // CDN 也可能返回 200 + HTML 风控页
+                if (!ImageFormatDetector.isImage(bytes)) {
+                    throw IOException("图片响应不是有效图片（${bytes.size} bytes）")
+                }
                 DomainPool.markImageGood(host)
                 return@withContext bytes
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 DomainPool.markImageBad(host)

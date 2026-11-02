@@ -21,9 +21,11 @@ import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
 import com.jmread.core.JmRepository
 import com.jmread.core.netconfig.DomainPool
+import com.jmread.core.scramble.ImageFormatDetector
 import com.jmread.core.scramble.ImageScrambler
 import com.jmread.data.DownloadPrefs
 import com.jmread.network.BcTls
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -174,10 +176,9 @@ object DownloadManager {
     fun pageFile(comicId: String, order: Int, index: Int): File =
         File(chapterDir(comicId, order), "page_${index + 1}.jpg")
 
-    /** 章节是否已完整下载（离线可读）：按任务记录的页数校验，避免半下载误判 */
+    /** 章节是否已完整下载（离线可读）：即使 COMPLETED 也按磁盘文件校验，防止清单与文件不一致 */
     fun isDownloaded(comicId: String, order: Int): Boolean {
         val task = taskFor(comicId, order)
-        if (task?.status == DlStatus.COMPLETED) return true
         val dir = chapterDir(comicId, order)
         // .part 是写入中的半成品，进程被杀会残留，不能计入有效页数
         val files = dir.listFiles()?.filter {
@@ -259,6 +260,8 @@ object DownloadManager {
                     if (idx >= 0) {
                         val old = list[idx]
                         if (old.isFinished) continue
+                        // 旧执行者还在跑时先取消，避免同一 key 出现两个下载协程
+                        if (old.status == DlStatus.DOWNLOADING) cancelRun(key)
                         list[idx] = old.copy(
                             task = old.task.copy(epTitle = epTitle),
                             status = DlStatus.PENDING,
@@ -555,6 +558,8 @@ object DownloadManager {
                 }
                 try {
                     val pages = JmRepository.chapterPages(t.comicId, t.order)
+                    // 空章节（付费/锁定/接口异常）不能当成 0 页下载完成
+                    if (pages.isEmpty()) throw IOException("章节没有可下载的图片")
                     // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
                     if (t.pageCount != pages.size) {
                         mutex.withLock {
@@ -611,6 +616,9 @@ object DownloadManager {
                     maybeNotifyBatch(t.comicId)
                 } catch (e: NetworkGateException) {
                     parkForNetwork(key, e.gate)
+                } catch (e: CancellationException) {
+                    // 取消不是下载失败：retry/remove 已接管状态，旧执行者不得写回 FAILED
+                    throw e
                 } catch (e: Exception) {
                     val gateNow = currentGate()
                     if (gateNow != NetworkGate.ALLOWED) {
@@ -695,6 +703,10 @@ object DownloadManager {
             val tmp = File(dest.parentFile, "${dest.name}.$runTag.part")
             try {
                 val bytes = conn.inputStream.use { input -> input.readBytes() }
+                // CDN 可能返回 200 + HTML 风控页/空响应；非图片字节不能落盘冒充页面
+                if (!ImageFormatDetector.isImage(bytes)) {
+                    throw IOException("响应不是有效图片（${bytes.size} bytes）")
+                }
                 // 章节图判定乱序并还原后落盘（Android 渲染按内容解码，文件名扩展名不影响）；未命中原样落盘
                 val processed = ImageScrambler.processBytesIfNeeded(
                     urlStr,
@@ -770,6 +782,8 @@ object DownloadManager {
             mutex.withLock {
                 val current = _tasks.value
                 _tasks.value = mergeRestoredTasks(current, restored, deletedKeys.toSet())
+                // 合并结果必须立刻落盘：恢复期间发生的 enqueue 可能已用旧列表覆盖过清单
+                persist()
             }
         } catch (e: Exception) {
             // 恢复失败必须可见：静默吞掉会让内存列表为空，之后任意一次 persist

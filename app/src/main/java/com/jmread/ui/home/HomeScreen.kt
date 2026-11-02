@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,6 +124,9 @@ fun HomeScreen(
     val followGridState = rememberLazyGridState()
     val rankGridState = rememberLazyGridState()
     val randomGridState = rememberLazyGridState()
+    // 三个 Tab 是条件分支渲染：没有 SaveableStateHolder 时，切走再回来
+    // RankTab 内部的 rememberSaveable（分区/排序/筛选）会被丢弃。
+    val tabStateHolder = rememberSaveableStateHolder()
     val scrollStateRestored by viewModel.isScrollStateRestored.collectAsState()
 
     // 离开关注 Tab（切走/退出首页）时推进「已看到」基线
@@ -156,13 +160,6 @@ fun HomeScreen(
         if (followRefreshTick != lastFollowTick.intValue) {
             lastFollowTick.intValue = followRefreshTick
             if (followFeed.isNotEmpty()) followGridState.scrollToItem(0)
-        }
-    }
-    val lastRankTick = remember { mutableIntStateOf(rankRefreshTick) }
-    LaunchedEffect(rankRefreshTick) {
-        if (rankRefreshTick != lastRankTick.intValue) {
-            lastRankTick.intValue = rankRefreshTick
-            if (rankComics.isNotEmpty()) rankGridState.scrollToItem(0)
         }
     }
 
@@ -276,51 +273,58 @@ fun HomeScreen(
                 .padding(innerPadding),
         ) {
             when (selectedTab) {
-                0 -> FollowTab(
-                    comics = followFeed,
-                    loading = followLoading,
-                    loadingMore = followLoadingMore,
-                    endReached = followEndReached,
-                    emptyHint = followEmptyHint,
-                    error = followError,
-                    newUntil = seenMarker,
-                    columns = gridColumns,
-                    onLoadMore = followViewModel::loadMore,
-                    onRefresh = followViewModel::refresh,
-                    onManage = onOpenFollowManage,
-                    onComicClick = onComicClick,
-                    gridState = followGridState,
-                )
+                0 -> tabStateHolder.SaveableStateProvider("follow") {
+                    FollowTab(
+                        comics = followFeed,
+                        loading = followLoading,
+                        loadingMore = followLoadingMore,
+                        endReached = followEndReached,
+                        emptyHint = followEmptyHint,
+                        error = followError,
+                        newUntil = seenMarker,
+                        columns = gridColumns,
+                        onLoadMore = followViewModel::loadMore,
+                        onRefresh = followViewModel::refresh,
+                        onManage = onOpenFollowManage,
+                        onComicClick = onComicClick,
+                        gridState = followGridState,
+                    )
+                }
 
-                1 -> RankTab(
-                    comics = rankComics,
-                    rankType = rankType,
-                    rankTabs = rankTabs,
-                    loading = rankLoading,
-                    error = rankError,
-                    total = rankTotal,
-                    cacheAt = rankCacheAt,
-                    columns = gridColumns,
-                    promoteSections = promoteSections,
-                    weeklySection = weeklySection,
-                    sectionsLoading = sectionsLoading,
-                    onTypeChange = { viewModel.loadRank(it) },
-                    onRefreshRank = { viewModel.loadRank(rankType, force = true) },
-                    onRefreshSections = viewModel::refreshSections,
-                    onOpenWeekly = onOpenWeekly,
-                    onComicClick = onComicClick,
-                    gridState = rankGridState,
-                )
+                1 -> tabStateHolder.SaveableStateProvider("rank") {
+                    RankTab(
+                        comics = rankComics,
+                        rankType = rankType,
+                        rankTabs = rankTabs,
+                        loading = rankLoading,
+                        error = rankError,
+                        total = rankTotal,
+                        cacheAt = rankCacheAt,
+                        columns = gridColumns,
+                        promoteSections = promoteSections,
+                        weeklySection = weeklySection,
+                        sectionsLoading = sectionsLoading,
+                        rankRefreshTick = rankRefreshTick,
+                        onTypeChange = { viewModel.loadRank(it) },
+                        onRefreshRank = { viewModel.loadRank(rankType, force = true) },
+                        onRefreshSections = viewModel::refreshSections,
+                        onOpenWeekly = onOpenWeekly,
+                        onComicClick = onComicClick,
+                        gridState = rankGridState,
+                    )
+                }
 
-                else -> RandomTab(
-                    comics = randomComics,
-                    loading = randomLoading,
-                    error = randomError,
-                    columns = gridColumns,
-                    onRefresh = viewModel::refreshRandom,
-                    onComicClick = onComicClick,
-                    gridState = randomGridState,
-                )
+                else -> tabStateHolder.SaveableStateProvider("random") {
+                    RandomTab(
+                        comics = randomComics,
+                        loading = randomLoading,
+                        error = randomError,
+                        columns = gridColumns,
+                        onRefresh = viewModel::refreshRandom,
+                        onComicClick = onComicClick,
+                        gridState = randomGridState,
+                    )
+                }
             }
         }
     }
@@ -441,6 +445,7 @@ private fun RankTab(
     promoteSections: List<HomePromoteSection>,
     weeklySection: HomeWeeklySection?,
     sectionsLoading: Boolean,
+    rankRefreshTick: Int,
     onTypeChange: (String) -> Unit,
     onRefreshRank: () -> Unit,
     onRefreshSections: () -> Unit,
@@ -457,6 +462,15 @@ private fun RankTab(
     val selectedSection = promoteSections.firstOrNull { source == sectionSource(it.key) }
     val weeklySelected = source == SOURCE_WEEKLY
     val rankSelected = !weeklySelected && selectedSection == null
+
+    // 榜单静默刷新成功才回顶；用户正在看分区/每周必看时不能被后台刷新打断
+    val lastRankTick = remember { mutableIntStateOf(rankRefreshTick) }
+    LaunchedEffect(rankRefreshTick) {
+        if (rankRefreshTick != lastRankTick.intValue) {
+            lastRankTick.intValue = rankRefreshTick
+            if (rankSelected && comics.isNotEmpty()) gridState.scrollToItem(0)
+        }
+    }
 
     // 分区轮换后原选中项消失：回到榜单，避免内容区空白
     LaunchedEffect(promoteSections, source) {

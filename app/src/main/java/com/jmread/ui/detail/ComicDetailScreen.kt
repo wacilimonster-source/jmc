@@ -442,7 +442,18 @@ fun ComicDetailScreen(
                             )
                         }
                     }
-                    if (comments.isEmpty() && !commentLoading) {
+                    if (comments.isEmpty() && !commentLoading && commentError != null) {
+                        item {
+                            Text(
+                                text = "评论加载失败 · 点击重试",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clickable { viewModel.loadComments(comicId, 1) },
+                            )
+                        }
+                    } else if (comments.isEmpty() && !commentLoading) {
                         item {
                             Text(
                                 text = "暂无评论",

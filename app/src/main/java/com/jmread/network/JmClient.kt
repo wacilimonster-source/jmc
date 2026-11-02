@@ -119,6 +119,12 @@ object JmClient {
         relative: String,
         form: Map<String, String>? = null,
         retriedAuth: Boolean = false,
+        /**
+         * 传输层失败后是否换域重试。GET 幂等，默认可重试；
+         * 非幂等 POST（/favorite 翻转）必须传 false —— 服务端可能已处理但响应丢失，
+         * 再发一次会把收藏翻回去。
+         */
+        retryTransport: Boolean = true,
     ): String = withContext(Dispatchers.IO) {
         var lastError: Exception? = null
         repeat(MAX_HOST_ATTEMPTS) { attempt ->
@@ -183,9 +189,13 @@ object JmClient {
                 throw e
             } catch (e: Exception) {
                 lastError = e
-                LogStore.log("jm-net", "WARN", "host=$host 失败(${e.message?.take(80)})，换下一条线路")
                 DomainPool.markBad(host)
                 DomainPool.rotate()
+                if (!retryTransport) {
+                    // 非幂等请求：请求可能已被服务端处理，不能安全重放
+                    throw e
+                }
+                LogStore.log("jm-net", "WARN", "host=$host 失败(${e.message?.take(80)})，换下一条线路")
                 // 继续下一次尝试
             }
         }
@@ -387,9 +397,9 @@ object JmClient {
         return resp.data
     }
 
-    /** 退出登录：GET /logout（尽力而为，失败不抛） */
+    /** 退出登录：GET /logout（尽力而为，失败不抛；跳过 401 钩子避免退出时又重登） */
     suspend fun logout() {
-        runCatching { execute("/logout") }
+        runCatching { execute("/logout", retriedAuth = true) }
     }
 
     // ---------- 需登录端点（2026-09-25 实测定案，见 reports/feature-design-20260925.html） ----------
@@ -408,7 +418,8 @@ object JmClient {
      * 不要本地乐观翻转（双击防抖也在这里面做）。
      */
     suspend fun favoriteToggle(aid: String): JmActionData? {
-        val text = execute("/favorite", form = mapOf("aid" to aid))
+        // 翻转端点非幂等：传输失败不能换域重发，否则可能翻两次
+        val text = execute("/favorite", form = mapOf("aid" to aid), retryTransport = false)
         return json.decodeFromString(JmActionResponse.serializer(), text).data
     }
 

@@ -140,7 +140,10 @@ fun AuthorComicsScreen(
                 items(supportedSorts, key = { it.name }) { s ->
                     FilterChip(
                         selected = sort == s,
-                        onClick = { viewModel.setSort(s) },
+                        onClick = {
+                            viewModel.setSort(s)
+                            listState.requestScrollToItem(0)
+                        },
                         label = { Text(s.label) },
                     )
                 }
@@ -154,7 +157,10 @@ fun AuthorComicsScreen(
                     items(ComicStatus.entries.toList(), key = { it.name }) { st ->
                         FilterChip(
                             selected = status == st,
-                            onClick = { viewModel.setStatus(st) },
+                            onClick = {
+                                viewModel.setStatus(st)
+                                listState.requestScrollToItem(0)
+                            },
                             label = { Text(st.label) },
                         )
                     }

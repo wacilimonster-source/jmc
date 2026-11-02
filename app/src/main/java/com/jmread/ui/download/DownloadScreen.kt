@@ -52,6 +52,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,9 +87,15 @@ fun DownloadScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val exportState by DownloadExporter.state.collectAsState()
-    var pendingExport by remember { mutableStateOf<PendingExport?>(null) }
-    var partialExport by remember { mutableStateOf<PendingExport?>(null) }
-    var lastExport by remember { mutableStateOf<PendingExport?>(null) }
+    var pendingExport by rememberSaveable(stateSaver = PendingExportSaver) {
+        mutableStateOf<PendingExport?>(null)
+    }
+    var partialExport by rememberSaveable(stateSaver = PendingExportSaver) {
+        mutableStateOf<PendingExport?>(null)
+    }
+    var lastExport by rememberSaveable(stateSaver = PendingExportSaver) {
+        mutableStateOf<PendingExport?>(null)
+    }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
@@ -133,11 +141,15 @@ fun DownloadScreen(
         }
     }
 
-    // 失败提示以进入页面时的状态为基线，避免恢复清单的批量 FAILED 一进页就轰炸
+    // 失败提示以进入页面时的状态为基线，避免恢复清单的批量 FAILED 一进页就轰炸。
+    // key 用失败集合而不是整个 tasks：进度每秒更新时不会取消正在显示的 snackbar。
     var failuresInitialized by remember { mutableStateOf(false) }
     var knownFailures by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(tasks) {
-        val current = tasks.filter { it.status == DlStatus.FAILED }.map { it.key }.toSet()
+    val failedKeys = remember(tasks) {
+        tasks.filter { it.status == DlStatus.FAILED }.map { it.key }.toSet()
+    }
+    LaunchedEffect(failedKeys) {
+        val current = failedKeys
         if (!failuresInitialized) {
             if (tasks.isNotEmpty()) {
                 knownFailures = current
@@ -598,6 +610,29 @@ private data class PendingExport(
             return "${safe.take(60)}.zip"
         }
 }
+
+/** SAF 选择器打开期间 Activity 可能被重建；导出意图必须可保存，否则选完目录静默丢失。 */
+private val PendingExportSaver: Saver<PendingExport?, Any> = Saver(
+    save = { value ->
+        value?.let { listOf(it.comicId, it.title, it.incomplete, it.completed) } ?: emptyList<Any>()
+    },
+    restore = { raw ->
+        val list = raw as? List<*>
+        if (list == null || list.size < 4) {
+            null
+        } else {
+            val comicId = list[0] as? String
+            val title = list[1] as? String
+            val incomplete = list[2] as? Int
+            val completed = list[3] as? Int
+            if (comicId != null && title != null && incomplete != null && completed != null) {
+                PendingExport(comicId, title, incomplete, completed)
+            } else {
+                null
+            }
+        }
+    },
+)
 
 private fun shareZip(context: android.content.Context, uri: Uri) {
     val readable = runCatching {

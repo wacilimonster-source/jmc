@@ -1,6 +1,8 @@
 package com.jmread.core.scramble
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** P0-06：导出/保存按魔数识别真实编码。 */
@@ -37,5 +39,21 @@ class ImageFormatDetectorTest {
     @Test
     fun `未知格式回退 webp`() {
         assertEquals("webp", ImageFormatDetector.detect(byteArrayOf(1, 2, 3)).extension)
+    }
+
+    @Test
+    fun `isImage 接受真实图片且拒绝风控页与空响应`() {
+        val webp = "RIFF".toByteArray() + ByteArray(4) + "WEBP".toByteArray()
+        assertTrue(ImageFormatDetector.isImage(webp))
+        assertTrue(ImageFormatDetector.isImage("GIF8".toByteArray() + byteArrayOf(0, 0)))
+        assertFalse(ImageFormatDetector.isImage(ByteArray(0)))
+        assertFalse(ImageFormatDetector.isImage("<html>challenge</html>".toByteArray()))
+        assertFalse(ImageFormatDetector.isImage("{\"code\":403}".toByteArray()))
+    }
+
+    @Test
+    fun `isImage 接受 avif ftyp 容器`() {
+        val avif = ByteArray(4) + "ftypavif".toByteArray() + ByteArray(4)
+        assertTrue(ImageFormatDetector.isImage(avif))
     }
 }

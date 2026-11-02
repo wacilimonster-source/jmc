@@ -2,6 +2,9 @@ package com.jmread.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -32,6 +35,10 @@ object FollowSettings {
     private val json = Json { ignoreUnknownKeys = true }
 
     private var prefs: SharedPreferences? = null
+
+    /** 关注项变更版本：关注流 VM 据此重建 targets 并刷新，不用等 30 秒节流 */
+    private val _version = MutableStateFlow(0)
+    val version: StateFlow<Int> = _version.asStateFlow()
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -71,6 +78,7 @@ object FollowSettings {
         list.add(0, FollowItem(keywords = words, tag = tag, createdAt = ts))
         val p = prefs ?: return
         p.edit().putString(KEY_ITEMS, json.encodeToString(list)).commit()
+        _version.value++
     }
 
     /**
@@ -88,5 +96,6 @@ object FollowSettings {
                 ),
             )
             .commit()
+        _version.value++
     }
 }

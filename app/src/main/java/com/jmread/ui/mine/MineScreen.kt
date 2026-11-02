@@ -73,24 +73,21 @@ fun MineScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 登录态从 false→true（本会话内刚完成登录）：flush 同步队列 + 一次性 backfill 询问。
-    // 初次组合（持久会话恢复）不触发——backfill 只属于「刚登录」时刻。
-    var lastKnownLoggedIn by remember { mutableStateOf(JmRepository.isLoggedIn) }
+    // 刚完成显式登录（由 JmRepository 记录的一次性事件）：flush 同步队列 + 一次性 backfill 询问。
+    // 不能用「组合内 false→true」判断：登录页返回时 Mine 是重新组合的，初值已经是 true。
     var backfillPending by remember { mutableStateOf(0) }
     var showBackfillDialog by remember { mutableStateOf(false) }
     LaunchedEffect(loggedIn) {
         if (loggedIn && JmCapabilities.hasDailyCheckIn) DailyCheckIn.maybeCheckIn()
-        if (loggedIn && !lastKnownLoggedIn) {
-            lastKnownLoggedIn = true
+        if (loggedIn && JmRepository.consumePostLoginEvent()) {
             LibraryRepository.flushPendingSync()
+            LibraryRepository.refreshCloud(force = true)
             val pending = LibraryRepository.backfillPendingCount()
             val declinedFor = SourcePrefs.current().backfillDeclinedUid
             if (pending > 0 && declinedFor != JmRepository.accountName && declinedFor != SourcePrefs.current().jmUid) {
                 backfillPending = pending
                 showBackfillDialog = true
             }
-        } else if (loggedIn) {
-            lastKnownLoggedIn = true
         }
     }
 
@@ -108,12 +105,17 @@ fun MineScreen(
                 TextButton(onClick = {
                     showBackfillDialog = false
                     scope.launch {
-                        val (ok, fail) = LibraryRepository.backfillToCloud()
-                        if (ok + fail > 0) {
-                            snackbarHostState.showSnackbar(
-                                if (fail == 0) "已把 $ok 本同步到云端收藏"
-                                else "已同步 $ok 本，$fail 本失败（将自动重试）",
-                            )
+                        val result = LibraryRepository.backfillToCloud()
+                        if (result == null) {
+                            snackbarHostState.showSnackbar("云端收藏状态拉取失败，请检查网络后重试")
+                        } else {
+                            val (ok, fail) = result
+                            if (ok + fail > 0) {
+                                snackbarHostState.showSnackbar(
+                                    if (fail == 0) "已把 $ok 本同步到云端收藏"
+                                    else "已同步 $ok 本，$fail 本失败（将自动重试）",
+                                )
+                            }
                         }
                     }
                 }) { Text("同步到云端") }
@@ -231,7 +233,6 @@ fun MineScreen(
                         DailyCheckIn.reset()
                         loggedIn = false
                         account = null
-                        lastKnownLoggedIn = false
                     }
                 }) { Text("退出") }
             },

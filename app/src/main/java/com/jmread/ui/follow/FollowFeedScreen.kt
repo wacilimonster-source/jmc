@@ -138,6 +138,17 @@ class FollowFeedViewModel : ViewModel() {
                 if (refilled != current) _feed.value = refilled
             }
         }
+        // 关注管理里增删来源后立刻重建并刷新，不等 30 秒节流/手动下拉
+        viewModelScope.launch {
+            var lastVersion = FollowSettings.version.value
+            FollowSettings.version.collect { v ->
+                if (v != lastVersion) {
+                    lastVersion = v
+                    rebuildTargets()
+                    refresh()
+                }
+            }
+        }
     }
 
     fun initialRefresh() {
@@ -198,8 +209,9 @@ class FollowFeedViewModel : ViewModel() {
                 val result = fetchNextTargetPage()
                 val failed = result.failedCount
                 if (result.items.isNotEmpty() || failed == 0) {
-                    // 部分来源失败时只增不减，避免一次抖动让列表整体缩水
-                    mergeIntoFeed(result.items, append = failed > 0)
+                    // 永远替换而不是 append：部分来源失败时保留旧 feed 会让
+                    // 已取消关注的旧条目一直留在列表里
+                    mergeIntoFeed(result.items, append = false)
                     if (failed == 0) _refreshTick.value++
                     // 缓存只存前 120 条；内存列表完整保留，加载更多继续追加
                     runCatching { FollowFeedCache.save(_feed.value) }
@@ -337,14 +349,18 @@ class FollowFeedViewModel : ViewModel() {
 
         val resultSets = firstResults.map { (src, first) ->
             val pages = (first?.pages ?: 1).coerceIn(1, MAX_FOLLOW_INTERSECTION_PAGES)
-            buildList {
-                first?.items?.let { addAll(it) }
-                for (p in 2..pages) {
-                    com.jmread.core.runCatchingCancellable {
-                        searchWithRetry(src.query, p, src.mainTag)
-                    }.getOrNull()?.let { addAll(it.items) }
-                }
+            val acc = mutableListOf<ComicSummary>()
+            first?.items?.let { acc.addAll(it) }
+            for (p in 2..pages) {
+                val page = com.jmread.core.runCatchingCancellable {
+                    searchWithRetry(src.query, p, src.mainTag)
+                }.getOrNull()
+                // 任何一页失败都会让交集偏小/为空，必须按该来源失败处理并让用户看到，
+                // 不能静默拿不完整结果当作「没有匹配作品」。
+                if (page == null) throw IllegalStateException("关注来源分页失败（第 $p 页）")
+                acc.addAll(page.items)
             }
+            acc
         }
         val idSets = resultSets.map { set -> set.map { it.id }.toSet() }
         val common = idSets.firstOrNull()

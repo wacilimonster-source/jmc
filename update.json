@@ -1,6 +1,6 @@
 {
-  "sha256": "85ec3a187cf6ea07bdce1c4a6002299954891e2dbe59b4c5101f070fdd2fefae",
-  "version": "0.5.1",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.5.1.apk",
-  "notes": "JM Reader 0.5.1 更新：全新二次元漫画风格应用图标，支持 Android 系统主题图标。"
+  "sha256": "39d1866ab536b570d9d9db361be436d95a189dbf9d0efb4bf7726298124a75e8",
+  "version": "0.5.2",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.5.2.apk",
+  "notes": "JM Reader 0.5.2 更新：\n1. 修复云端收藏分页/完整性判断，避免已收藏作品被误取消\n2. 修复自动签到永远显示「今日已签到」\n3. 修复搜索筛选分页、分类筛选分页与多词搜索卡死\n4. 修复阅读器误标读完、切章丢进度、坏图无法重试、解码内存峰值\n5. 修复下载结果校验、书架并发写与一批重试/空态问题"
 }

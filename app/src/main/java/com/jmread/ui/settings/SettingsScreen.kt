@@ -313,8 +313,12 @@ fun SettingsScreen(
                         Switch(
                             checked = wifiOnly,
                             onCheckedChange = {
-                                scope.launch { DownloadPrefs.setWifiOnly(it) }
-                                com.jmread.core.download.DownloadManager.refreshNetworkGate()
+                                scope.launch {
+                                    // 先落偏好再唤醒闸门；否则 refreshNetworkGate 读到旧值，
+                                    // 关闭限制后排队任务不会重新开跑
+                                    DownloadPrefs.setWifiOnly(it)
+                                    com.jmread.core.download.DownloadManager.refreshNetworkGate()
+                                }
                             },
                         )
                     },
@@ -381,13 +385,18 @@ private fun LibrarySyncSection() {
                     running = true
                     showConfirm = false
                     scope.launch {
-                        val (ok, fail) = com.jmread.core.library.LibraryRepository.backfillToCloud()
-                        resultText = if (ok + fail == 0) {
-                            "云端收藏已与本地书架一致"
-                        } else if (fail == 0) {
-                            "已同步 $ok 本到云端收藏"
+                        val result = com.jmread.core.library.LibraryRepository.backfillToCloud()
+                        resultText = if (result == null) {
+                            "云端收藏状态拉取失败，请检查网络后重试"
                         } else {
-                            "已同步 $ok 本，$fail 本失败（将自动重试）"
+                            val (ok, fail) = result
+                            if (ok + fail == 0) {
+                                "云端收藏已与本地书架一致"
+                            } else if (fail == 0) {
+                                "已同步 $ok 本到云端收藏"
+                            } else {
+                                "已同步 $ok 本，$fail 本失败（将自动重试）"
+                            }
                         }
                         running = false
                     }

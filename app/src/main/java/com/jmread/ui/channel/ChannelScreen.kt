@@ -221,6 +221,19 @@ fun ChannelScreen(
                     columns = columns,
                     modifier = Modifier.weight(1f),
                 )
+                comics.isEmpty() -> Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "该频道暂无作品",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 else -> {
                     // 翻页失败但旧内容还在展示：必须显式提示，否则用户会以为已经翻到新页
                     if (error != null) {

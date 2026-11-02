@@ -83,9 +83,12 @@ fun SearchScreen(
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-    // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
-    LaunchedEffect(readFilter, comics, loading, endReached) {
-        if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
+    // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）。
+    // 出错后暂停自动补页，等用户显式重试，避免失败页被无限重拉。
+    LaunchedEffect(readFilter, comics, loading, endReached, searchError) {
+        if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && !loading && !endReached &&
+            searchError == null && comics.isNotEmpty()
+        ) {
             viewModel.loadMore()
         }
     }
@@ -193,7 +196,10 @@ fun SearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
                 focusManager.clearFocus()
+                // 新查询必须把筛选页码与滚动位置一起归零，否则会停在上一个查询的第 N 页
+                filterPage = 1
                 viewModel.search(input.trim(), page = 1)
+                listState.requestScrollToItem(0)
             }),
             leadingIcon = leadingIcon,
             trailingIcon = trailingIcon,
@@ -252,7 +258,6 @@ fun SearchScreen(
                         selected = readFilter == f,
                         onClick = {
                             readFilterName = f.name
-                            viewModel.resetFilterPage()
                             filterPage = 1
                             listState.requestScrollToItem(0)
                         },
@@ -269,6 +274,19 @@ fun SearchScreen(
             } else {
                 comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
             }
+        }
+        // 筛选页码按「已加载结果的 20 条切片」计算，不能沿用服务端 80 条/页的 totalPages，
+        // 否则 50 条结果只显示 1 页、只能看到前 20 条。
+        val filterPageCount = ((comics.size + 19) / 20).coerceAtLeast(1)
+        val barTotalPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
+            filterPageCount
+        } else {
+            totalPages
+        }
+        val barLoadedPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
+            filterPageCount
+        } else {
+            (comics.size + 19) / 20
         }
         // 分页条回调（筛选模式=客户端切片换页；普通模式=服务端换页），正常/空态两个分支共用
         val onBarPageChange: (Int) -> Unit = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
@@ -316,7 +334,11 @@ fun SearchScreen(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .padding(horizontal = 16.dp)
-                            .clickable { viewModel.search(keyword, page = 1) },
+                            .clickable {
+                                filterPage = 1
+                                viewModel.search(keyword, page = 1)
+                                listState.requestScrollToItem(0)
+                            },
                     )
                 }
                 // 搜索历史：仅在「无结果、未加载、无错误」时展示，避免挤占结果与错误态
@@ -356,17 +378,44 @@ fun SearchScreen(
                     }
                 }
             }
-            if (totalPages > 1) {
+            if (barTotalPages > 1) {
                 com.jmread.ui.browse.PaginationBar(
                     currentPage = filterPage,
-                    totalPages = totalPages,
-                    loadedPages = (comics.size + 19) / 20,
+                    totalPages = barTotalPages,
+                    loadedPages = barLoadedPages,
                     onPageChange = onBarPageChange,
                     progressMode = readFilter != com.jmread.ui.browse.ReadFilter.ALL,
                 )
             }
         } else {
             Column(Modifier.fillMaxSize()) {
+                if (searchError != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "加载失败：$searchError",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "重试",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .clickable {
+                                    filterPage = 1
+                                    viewModel.search(keyword, page = 1)
+                                    listState.requestScrollToItem(0)
+                                },
+                        )
+                    }
+                }
                 ComicGridView(
                     comics = displayComics,
                     loading = loading,
@@ -388,8 +437,8 @@ fun SearchScreen(
                 }
                 com.jmread.ui.browse.PaginationBar(
                     currentPage = filterPage,
-                    totalPages = totalPages,
-                    loadedPages = (comics.size + 19) / 20,
+                    totalPages = barTotalPages,
+                    loadedPages = barLoadedPages,
                     onPageChange = onBarPageChange,
                     progressMode = readFilter != com.jmread.ui.browse.ReadFilter.ALL,
                     // 条数与分页合并到同一行，省掉网格上方的结果数文本行

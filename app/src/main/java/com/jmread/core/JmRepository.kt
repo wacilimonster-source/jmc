@@ -1,5 +1,7 @@
 package com.jmread.core
 
+import com.jmread.core.checkin.isSignedOn
+import com.jmread.core.library.LibraryRepository
 import com.jmread.core.log.LogStore
 import com.jmread.core.model.BROWSE_HARD_CAP
 import com.jmread.core.model.ComicCategory
@@ -68,6 +70,24 @@ object JmRepository {
     var favouriteVersion: Long = 0L
         private set
 
+    /**
+     * 登录会话代际：登录/退出/凭据失效时递增。
+     * 书架用它判断进程内缓存的云端数据是否仍属于当前账号。
+     */
+    @Volatile
+    var sessionGeneration: Long = 0L
+        private set
+
+    /** 刚完成一次显式登录：由「我的」页消费，触发同步队列 flush 与 backfill 询问。 */
+    @Volatile
+    private var postLoginEvent: Boolean = false
+
+    fun consumePostLoginEvent(): Boolean {
+        if (!postLoginEvent) return false
+        postLoginEvent = false
+        return true
+    }
+
     private suspend fun albumCached(albumId: String): com.jmread.network.JmAlbumResponse {
         val now = System.currentTimeMillis()
         albumCache[albumId]?.let { (at, resp) ->
@@ -86,21 +106,37 @@ object JmRepository {
 
     /** 由 JmApp.onCreate 调用：装配 401 静默重登钩子 */
     fun init() {
-        JmClient.onUnauthorizedHook = {
+        JmClient.onUnauthorizedHook = hook@{
+            // 显式退出后不再自动重登：退出时可能仍有在途请求返回 401，
+            // 若此时读取已保存凭据重新登录，用户会看到「退出了但账号又活了」。
+            if (!isLoggedIn) return@hook
             // 单飞：多个并发请求同时 401 时只跑一次重登；login 本身已跳过该钩子，
             // 不存在 login -> 401 -> hook -> login 的递归。
             reloginMutex.withLock {
+                if (!isLoggedIn) return@withLock
                 val cred = SecureAccountStore.load()
                 if (cred != null) {
-                    runCatching { JmClient.login(cred.first, cred.second) }
-                        .onSuccess {
-                            SourcePrefs.current().setJmLogin(it.s, cred.first, it.uid)
-                            favIdsCache = null
-                        }
-                        .onFailure {
+                    try {
+                        val data = JmClient.login(cred.first, cred.second)
+                        SourcePrefs.current().setJmLogin(data.s, cred.first, data.uid)
+                        favIdsCache = null
+                        sessionGeneration++
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // 只有服务端明确拒绝凭据才登出；断网/超时/取消不应把会话清掉。
+                        if ((e as? JmException)?.isCredentialRejected == true) {
                             SourcePrefs.current().clearJmLogin()
                             favIdsCache = null
+                            sessionGeneration++
+                            LibraryRepository.resetCloud()
+                        } else {
+                            LogStore.log(
+                                "jm-net", "W",
+                                "401 后重登失败（非凭据拒绝，保留会话）：${e.message?.take(80)}",
+                            )
                         }
+                    }
                 } else {
                     // 用户选择「不保存账号密码」：无法自动重登，但也不能因为单个端点的 401
                     // 就把一个仍然有效的会话静默清掉（详情页拉收藏态就可能触发 401 限流）。
@@ -120,9 +156,12 @@ object JmRepository {
         val data = JmClient.login(account, password)
         SourcePrefs.current().setJmLogin(data.s, account.trim(), data.uid)
         SecureAccountStore.save(account.trim(), password)
-        // 换账号后旧的收藏 id 集合不再成立
+        // 换账号后旧的收藏 id 集合与书架云端缓存都不再成立
         favIdsCache = null
         favouriteVersion++
+        sessionGeneration++
+        postLoginEvent = true
+        LibraryRepository.resetCloud()
     }
 
     suspend fun logout() {
@@ -130,6 +169,9 @@ object JmRepository {
         SourcePrefs.current().clearJmLogin()
         favIdsCache = null
         favouriteVersion++
+        sessionGeneration++
+        postLoginEvent = false
+        LibraryRepository.resetCloud()
     }
 
     /** 启动/换域后的 /setting 刷新（失败静默：内置域名表兜底） */
@@ -178,8 +220,8 @@ object JmRepository {
     ): PageResult<ComicSummary> {
         val data = JmClient.browse(page, category, sort)
         val items = data.data.items.map { it.toSummary() }
-        // total 恒 10000：pagesOf 判为不可信 → 按当页条数 + 125 硬上限
-        val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
+        // total 恒 10000：这是哨兵不是真实条数，必须传 0 让 pagesOf 走「当页不满」判据
+        val pages = pagesOf(0, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = 0)
     }
 
@@ -359,11 +401,17 @@ object JmRepository {
     suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> {
         val a = albumCached(comicId).data
         val albumId = a.id.takeIf { it > 0 }?.toString() ?: comicId
-        // order(1-based) -> 章节 photo id；单章本子回退用 album id
         val sorted = a.series
             .mapIndexed { i, s -> Triple(s, s.sort.toIntOrNull() ?: (i + 1), i) }
             .sortedWith(compareBy({ it.second }, { it.third }))
-        val photoId = sorted.getOrNull(order - 1)?.first?.id ?: albumId
+        // order(1-based) -> 章节 photo id。只有单章本子（series 为空）才回退到 album id；
+        // 越界 order 若也回退，会把整本封面页当成该章内容静默打开。
+        val photoId = if (sorted.isEmpty()) {
+            albumId
+        } else {
+            sorted.getOrNull(order - 1)?.first?.id
+                ?: throw JmException("章节不存在：第 $order 话（共 ${sorted.size} 话）")
+        }
         val chapter = JmClient.chapter(photoId).data
         return chapter.images.mapIndexed { i, filename ->
             ComicPage(index = i, imageUrl = JmCrypto.imageUrl(photoId, filename))
@@ -409,7 +457,7 @@ object JmRepository {
         val pages = pagesOf(data.data.total, items.size, page, FAV_PAGE_SIZE, 500)
         // 单页即全集时顺手填充收藏 id 集合：详情页心形初值可直接命中缓存，
         // 少一次 /favorite 请求（该端点在高频连续请求下会返回 401）。
-        if (page == 1 && items.size < FAV_PAGE_SIZE) {
+        if (page == 1 && data.data.total in 1..items.size) {
             favIdsCache = System.currentTimeMillis() to items.map { it.id }.toSet()
         }
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
@@ -427,20 +475,26 @@ object JmRepository {
             if (!force && now - at < FAV_IDS_TTL_MS) return ids
         }
         val ids = HashSet<String>()
-        var complete = true
-        // 拉前 3 页（240 本）覆盖绝大多数用户的收藏量；更多时以收藏列表页为准
-        for (page in 1..3) {
-            val r = runCatching { favourites(page) }.getOrNull()
-            if (r == null) {
-                complete = false
-                break
+        var page = 1
+        while (true) {
+            val r = try {
+                favourites(page)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 半截集合不能返回给调用方：setCollected/backfill 会把「不在集合里」
+                // 当成「云端未收藏」并对翻转端点发请求，造成反向取消收藏。
+                throw JmException("云端收藏列表加载失败：${e.message ?: "未知错误"}")
             }
             ids += r.items.map { it.id }
-            if (r.items.size < FAV_PAGE_SIZE) break
+            if (r.page >= r.pages) break
+            if (page >= FAV_MAX_PAGES) {
+                throw JmException("云端收藏超过 ${FAV_MAX_PAGES * FAV_PAGE_SIZE} 本，无法安全对账")
+            }
+            page++
         }
-        // 只缓存完整结果：把失败时的半截集合缓存 5 分钟会让心形长期显示错误状态，
-        // 用户一点击就可能对服务端执行反向翻转（取消本来已收藏的作品）。
-        if (complete) favIdsCache = now to ids
+        // 只有完整结果才进缓存；异常路径直接上抛，绝不以半截集合充当真相。
+        favIdsCache = now to ids
         return ids
     }
 
@@ -493,8 +547,10 @@ object JmRepository {
         val cal = dailyCalendar() ?: throw JmException("签到数据不可用")
         val today = java.text.SimpleDateFormat("dd", java.util.Locale.US)
             .format(java.util.Date())
-        // record 的 date 线上以零填充为主但偶发裸数字（date 走灵活字符串），比较时两侧都补齐到两位
-        val already = cal.record.any { row -> row.any { it.date.padStart(2, '0') == today } }
+        // record 的 date 线上以零填充为主但偶发裸数字（date 走灵活字符串）。
+        // 必须同时检查 signed：月历矩阵本来就会包含“今天”这一格（未签时 signed=false），
+        // 只比日期会让每次签到都提前返回“今日已签到”。
+        val already = isSignedOn(cal.record, today)
         if (already) return "今日已签到"
         val result = JmClient.dailyCheckIn(uid, cal.dailyId)
         return result?.msg ?: "签到完成"
@@ -504,7 +560,8 @@ object JmRepository {
     suspend fun cloudHistory(page: Int): PageResult<ComicSummary> {
         val data = JmClient.watchList(page)
         val items = data.data.items.map { it.toSummary() }
-        val pages = pagesOf(data.data.total, items.size, page, PAGE_SIZE, BROWSE_HARD_CAP)
+        // /watch_list 与 /favorite 都是 20 条/页，不是浏览流的 80
+        val pages = pagesOf(data.data.total, items.size, page, HISTORY_PAGE_SIZE, BROWSE_HARD_CAP)
         return PageResult(items.dedupeById(), page, pages, total = data.data.total)
     }
 
@@ -555,8 +612,13 @@ object JmRepository {
     // ---------- 内部 ----------
 
     private val PAGE_SIZE = 80
-    private val FAV_PAGE_SIZE = 80
-    private val COMMENT_PAGE_SIZE = 20
+    /** /favorite 与 /watch_list 实测 20 条/页（2026-09-25 抓包：list[20]） */
+    private val FAV_PAGE_SIZE = 20
+    private val HISTORY_PAGE_SIZE = 20
+    /** /forum 实测 10 条/页（fixture total=1075 / list=10） */
+    private val COMMENT_PAGE_SIZE = 10
+    /** 收藏对账最多翻 25 页（500 本），超过则明确报错而不是返回半截集合 */
+    private const val FAV_MAX_PAGES = 25
 
     private fun com.jmread.network.JmAlbumSummary.toSummary() = ComicSummary(
         id = id,
@@ -591,7 +653,7 @@ object JmRepository {
             user = user,
             createdAt = addtime,
             likesCount = likes.toIntOrNull() ?: 0,
-            isSpoiler = spoiler == "1",
+            isSpoiler = spoiler.isNotBlank() && spoiler != "0",
             isAd = ad,
             // 线上 badges 是 {content, name, id} 对象数组；这里只取展示名，
             // content（徽章图相对路径）留待真要渲染徽章时再接

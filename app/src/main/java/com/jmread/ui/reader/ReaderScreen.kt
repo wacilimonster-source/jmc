@@ -106,6 +106,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.jmread.core.MemoryBudget
 import com.jmread.core.scramble.ImageScrambler
 import com.jmread.core.scramble.jmImageCacheKey
@@ -167,6 +168,9 @@ fun ReaderScreen(
     val manualFlip = remember { mutableStateMapOf<String, Int>() }
     fun displayUrl(p: Int): String {
         val u = pages.getOrNull(p)?.imageUrl ?: return ""
+        // 本地已还原页不支持强制翻转：FileUriMapper 会忽略 fragment，
+        // 加了后缀只会在保存/分享时抛“无法应用强制翻转”。
+        if (u.startsWith("file:")) return u
         return when (manualFlip[u]) {
             1 -> "${u}#m1"
             -1 -> "${u}#m0"
@@ -187,6 +191,16 @@ fun ReaderScreen(
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
+    // 页面级重试计数：同页切片共享，避免点一个切片只重试它自己
+    val pageRetryTicks = remember { mutableStateMapOf<Int, Int>() }
+
+    // 切章后复位缩放：否则新章以 2x 打开、翻页被禁用，滚动流里音量键还会被吞掉
+    LaunchedEffect(vmOrder) {
+        zoomScale = 1f
+        panX = 0f
+        panY = 0f
+        pageRetryTicks.clear()
+    }
 
     val configuration = LocalConfiguration.current
     val viewportAspect = remember(configuration) {
@@ -388,7 +402,8 @@ fun ReaderScreen(
     }
 
     // 预加载前后 2 页；低内存/系统压力时 VM 内部直接跳过
-    LaunchedEffect(currentPage, scrollMode) {
+    // key 必须含章节与页数：切到页码相同的另一章也要取消旧章预取、启动新章预取
+    LaunchedEffect(currentPage, scrollMode, vmOrder, pages.size) {
         if (pages.isNotEmpty()) viewModel.preloadNearby(context, currentPage, scrollMode, range = 2)
     }
 
@@ -401,6 +416,10 @@ fun ReaderScreen(
     fun switchTo(targetOrder: Int) {
         showPanel = false
         showChapterSheet = false
+        // 1 秒防抖的进度可能还没落盘；切章会重启防抖协程并丢弃挂起写入。
+        // 先同步保存当前页，确保上一章的最后位置不丢。
+        viewModel.saveProgress(currentPage)
+        viewModel.recordRecentRead(currentPage)
         viewModel.switchChapter(context, targetOrder)
     }
 
@@ -609,6 +628,10 @@ fun ReaderScreen(
                         if (mode != scrollMode) {
                             val target = currentPage
                             scrollMode = mode
+                            // 缩放只属于翻页模式；切模式时复位，避免滚动流吞掉音量键
+                            zoomScale = 1f
+                            panX = 0f
+                            panY = 0f
                             ReaderPrefs.current().readerMode = if (mode) 0 else 1
                             scope.launch {
                                 if (mode) {
@@ -637,10 +660,13 @@ fun ReaderScreen(
                     onNextChapter = {
                         sortedChapters.getOrNull(currentChapterIndex + 1)?.let { switchTo(it.order) }
                     },
-                    flipState = pages.getOrNull(currentPage)?.let { manualFlip[it.imageUrl] } ?: 0,
+                    flipState = pages.getOrNull(currentPage)
+                        ?.takeUnless { it.imageUrl.startsWith("file:") }
+                        ?.let { manualFlip[it.imageUrl] } ?: 0,
                     onToggleFlip = {
                         val u = pages.getOrNull(currentPage)?.imageUrl
-                        if (u != null) {
+                        // 本地页已还原，翻转对显示/保存都无效
+                        if (u != null && !u.startsWith("file:")) {
                             manualFlip[u] = when (manualFlip[u] ?: 0) {
                                 0 -> 1
                                 1 -> -1
@@ -667,7 +693,9 @@ fun ReaderScreen(
                     if (!volumeKeyPaging) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.VolumeUp, Key.VolumeDown -> {
-                            if (event.type == KeyEventType.KeyUp && zoomScale <= 1f) {
+                            // 缩放态不接管音量键：既不翻页也不该假装翻页
+                            if (zoomScale > 1f) return@onPreviewKeyEvent false
+                            if (event.type == KeyEventType.KeyUp) {
                                 pageTurn(if (event.key == Key.VolumeUp) -1 else 1)
                             }
                             true
@@ -754,6 +782,11 @@ fun ReaderScreen(
                                 measuredRatio = pageRatios[pageIndex],
                                 viewportAspect = viewportAspect,
                                 splitEnabled = true,
+                                retryTick = pageRetryTicks[pageIndex] ?: 0,
+                                onRetry = {
+                                    pageRetryTicks[pageIndex] =
+                                        (pageRetryTicks[pageIndex] ?: 0) + 1
+                                },
                                 onPageMeasured = { p, ratio, n ->
                                     if (orderSnapshot == vmOrder) {
                                         val old = pageRatios[p]
@@ -921,11 +954,10 @@ fun ReaderScreen(
                 ) {
                     items(displayChapters, key = { it.id.ifBlank { "order:${it.order}" } }) { chapter ->
                         val isCurrent = chapter.order == vmOrder
-                        val isRead = if (chapter.id.isNotBlank()) {
-                            chapter.id in readChapterKeys
-                        } else {
+                        // 离线兜底目录的 id 是合成的，已读标记却可能还是 order:N；
+                        // 两个身份都查，避免离线看过的章节回来后勾消失
+                        val isRead = chapter.id in readChapterKeys ||
                             ChaptersReadDoc.orderKey(chapter.order) in readChapterKeys
-                        }
                         val isDownloaded = chapter.order in downloadedOrders
                         val canOpen = isOnline || isDownloaded
                         Row(
@@ -1073,6 +1105,8 @@ private fun ReaderPage(
         model = ImageRequest.Builder(context)
             .data(data)
             .size(pagerDecodeSize(context))
+            // 显式 Size + AUTOMATIC 会放大小图；阅读器只缩不放
+            .precision(Precision.INEXACT)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
             .crossfade(false)

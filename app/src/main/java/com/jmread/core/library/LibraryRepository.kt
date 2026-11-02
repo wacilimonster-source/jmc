@@ -40,15 +40,24 @@ object LibraryRepository {
         val error: String? = null,
         /** 本轮登录会话已加载过（登出→登录切换后强制重拉） */
         val sessionLoaded: Boolean = false,
+        /** 首次/追加加载失败后暂停自动触底，等用户显式刷新，避免网络失败时重试风暴 */
+        val loadMoreBlocked: Boolean = false,
+        /** 数据所属登录代际；与 JmRepository.sessionGeneration 不一致时强制重拉 */
+        val sessionGeneration: Long = -1L,
     ) {
         /** 未登录/未加载时视为已到底：本地-only 列表不该触发懒加载，也能显示页脚 */
         val endReached: Boolean
-            get() = !sessionLoaded ||
+            get() = !sessionLoaded || loadMoreBlocked ||
                 (favPageLoaded >= favPagesTotal && historyPageLoaded >= historyPagesTotal)
     }
 
     private val _cloud = MutableStateFlow(CloudState())
     val cloud: StateFlow<CloudState> = _cloud.asStateFlow()
+
+    /** 登录/退出时清空云端缓存，避免账号 A 的数据泄漏到账号 B 的书架。 */
+    fun resetCloud() {
+        _cloud.value = CloudState()
+    }
 
     /** 本地变更通知：阅读器存进度/书架清除记录后 bump，驱动合并重算 */
     private val localVersion = MutableStateFlow(0)
@@ -86,16 +95,27 @@ object LibraryRepository {
 
     private val cloudMutex = Mutex()
 
+    /** 收藏双写串行化：翻转端点非幂等，双击/并发调用必须排成一次一次 */
+    private val collectMutex = Mutex()
+
     /** 进入书架/下拉刷新时调用：已登录则拉云端两列表首页，失败不阻塞本地数据 */
     suspend fun refreshCloud(force: Boolean = false) {
         if (!JmRepository.isLoggedIn || !JmCapabilities.hasCloudFavouriteRead) {
-            _cloud.value = CloudState()
+            if (_cloud.value != CloudState()) _cloud.value = CloudState()
             return
         }
-        if (!force && _cloud.value.sessionLoaded) return
+        if (!force && _cloud.value.sessionLoaded &&
+            _cloud.value.sessionGeneration == JmRepository.sessionGeneration
+        ) {
+            return
+        }
         cloudMutex.withLock {
-            if (!force && _cloud.value.sessionLoaded) return
-            _cloud.value = _cloud.value.copy(loading = true, error = null)
+            if (!force && _cloud.value.sessionLoaded &&
+                _cloud.value.sessionGeneration == JmRepository.sessionGeneration
+            ) {
+                return
+            }
+            _cloud.value = _cloud.value.copy(loading = true, error = null, loadMoreBlocked = false)
             var firstError: String? = null
             val favs = runCatching { JmRepository.favourites(1) }
                 .onFailure { firstError = firstError ?: it.message }
@@ -120,6 +140,7 @@ object LibraryRepository {
                 loading = false,
                 error = if (favs == null || hist == null) (firstError ?: "云端数据同步失败") else null,
                 sessionLoaded = true,
+                sessionGeneration = JmRepository.sessionGeneration,
             )
         }
     }
@@ -152,7 +173,9 @@ object LibraryRepository {
                     historyPageLoaded = hist?.page ?: cur.historyPageLoaded,
                     historyPagesTotal = hist?.pages?.coerceAtLeast(1) ?: cur.historyPagesTotal,
                     loading = false,
-                    error = error ?: cur.error,
+                    // 失败后暂停自动触底：否则网格在底部会立即重试，形成无退避的请求风暴
+                    loadMoreBlocked = error != null,
+                    error = error,
                 )
             }
         }
@@ -185,32 +208,52 @@ object LibraryRepository {
         coverUrl: String,
         note: String = "",
     ): CollectResult = withContext(Dispatchers.IO) {
-        // 1. 本地先行
-        if (target) {
-            Bookmarks.add(Bookmarks.BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note))
-        } else {
-            Bookmarks.remove(comicId)
+        collectMutex.withLock {
+            // 1. 本地先行
+            if (target) {
+                Bookmarks.add(Bookmarks.BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note))
+            } else {
+                Bookmarks.remove(comicId)
+            }
+            // 2. 云端尽力
+            if (!JmRepository.isLoggedIn || !JmCapabilities.hasCloudFavouriteWrite) {
+                return@withLock CollectResult.LocalOnly
+            }
+            val cloudIds = runCatching { JmRepository.cloudFavouriteIds() }.getOrElse {
+                FavouriteSyncQueue.enqueue(comicId, target)
+                return@withLock CollectResult.Queued("已${if (target) "收藏" else "取消收藏"}，云端同步稍后自动完成")
+            }
+            if (cloudIds.contains(comicId) == target) {
+                if (!target) removeFromCloudFavourites(comicId)
+                return@withLock CollectResult.Synced
+            }
+            val now = runCatching { JmRepository.favourite(comicId) }.getOrElse {
+                FavouriteSyncQueue.enqueue(comicId, target)
+                return@withLock CollectResult.Queued("已${if (target) "收藏" else "取消收藏"}，云端同步稍后自动完成")
+            }
+            if (now == target) {
+                // 云端列表是书架合并的输入：取消收藏后必须同步移除，否则心形会被
+                // LibraryMerge 的 collected=true 再次点亮，且下一次点击变成空操作。
+                if (!target) removeFromCloudFavourites(comicId)
+                return@withLock CollectResult.Synced
+            }
+            // 服务端终态与意图不一致（缓存过期/并发翻转）：以服务端为准回填本地，保证心形全局一致
+            LogStore.log("Library", "W", "收藏翻转终态与意图不符：comic=$comicId 意图=$target 服务端=$now，以服务端回填本地")
+            if (now) {
+                Bookmarks.add(Bookmarks.BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note))
+            } else {
+                Bookmarks.remove(comicId)
+                removeFromCloudFavourites(comicId)
+            }
+            CollectResult.Synced
         }
-        // 2. 云端尽力
-        if (!JmRepository.isLoggedIn || !JmCapabilities.hasCloudFavouriteWrite) return@withContext CollectResult.LocalOnly
-        val cloudIds = runCatching { JmRepository.cloudFavouriteIds() }.getOrElse {
-            FavouriteSyncQueue.enqueue(comicId, target)
-            return@withContext CollectResult.Queued("已${if (target) "收藏" else "取消收藏"}，云端同步稍后自动完成")
-        }
-        if (cloudIds.contains(comicId) == target) return@withContext CollectResult.Synced
-        val now = runCatching { JmRepository.favourite(comicId) }.getOrElse {
-            FavouriteSyncQueue.enqueue(comicId, target)
-            return@withContext CollectResult.Queued("已${if (target) "收藏" else "取消收藏"}，云端同步稍后自动完成")
-        }
-        if (now == target) return@withContext CollectResult.Synced
-        // 服务端终态与意图不一致（缓存过期/并发翻转）：以服务端为准回填本地，保证心形全局一致
-        LogStore.log("Library", "W", "收藏翻转终态与意图不符：comic=$comicId 意图=$target 服务端=$now，以服务端回填本地")
-        if (now) {
-            Bookmarks.add(Bookmarks.BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note))
-        } else {
-            Bookmarks.remove(comicId)
-        }
-        CollectResult.Synced
+    }
+
+    /** 云端收藏被取消后同步内存合并源，避免心形/筛选残留。 */
+    private fun removeFromCloudFavourites(comicId: String) {
+        val cur = _cloud.value
+        if (cur.favourites.none { it.id == comicId }) return
+        _cloud.value = cur.copy(favourites = cur.favourites.filterNot { it.id == comicId })
     }
 
     // ---------- 同步队列 ----------
@@ -237,10 +280,10 @@ object LibraryRepository {
         return Bookmarks.items.value.count { it.comicId !in cloud }
     }
 
-    /** 执行 backfill，返回 (成功, 失败)；失败的条目自动入同步队列后续补 */
-    suspend fun backfillToCloud(): Pair<Int, Int> {
-        if (!JmRepository.isLoggedIn || !JmCapabilities.hasCloudFavouriteWrite) return 0 to 0
-        val cloud = runCatching { JmRepository.cloudFavouriteIds(force = true) }.getOrNull() ?: return 0 to 0
+    /** 执行 backfill，返回 (成功, 失败)；对账失败返回 null（不能谎报“已一致”），失败条目自动入队 */
+    suspend fun backfillToCloud(): Pair<Int, Int>? {
+        if (!JmRepository.isLoggedIn || !JmCapabilities.hasCloudFavouriteWrite) return null
+        val cloud = runCatching { JmRepository.cloudFavouriteIds(force = true) }.getOrNull() ?: return null
         val missing = Bookmarks.items.value.filter { it.comicId !in cloud }
         var ok = 0
         var fail = 0

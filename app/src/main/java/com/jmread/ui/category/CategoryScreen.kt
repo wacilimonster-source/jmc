@@ -256,6 +256,7 @@ fun CategoryComicsScreen(
 
     val routeSub = subCategory?.takeIf { it.isNotBlank() }.orEmpty()
     var currentSub by rememberSaveable(categoryId, routeSub) { mutableStateOf(routeSub) }
+    var lastSub by rememberSaveable(categoryId, routeSub) { mutableStateOf(routeSub) }
     var readFilterName by rememberSaveable(categoryId, currentSub) {
         mutableStateOf(com.jmread.ui.browse.ReadFilter.ALL.name)
     }
@@ -287,9 +288,22 @@ fun CategoryComicsScreen(
             reloadKey = reloadKey,
         )
     }
+    // 筛选模式需要把后续服务端页全部拉齐，否则只能过滤已加载的 20/40 条。
+    // 失败后暂停自动补页，等用户点“重试”，避免失败页被无限重拉。
+    LaunchedEffect(readFilter, comics, loading, endReached, error) {
+        if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && !loading && !endReached &&
+            error == null && comics.isNotEmpty()
+        ) {
+            viewModel.loadMore()
+        }
+    }
     LaunchedEffect(currentSub) {
-        filterPage = 1
-        listState.requestScrollToItem(0)
+        // 只在用户真正切换子分类时重置；从详情返回/旋转重组时 lastSub 已恢复为同值
+        if (currentSub != lastSub) {
+            lastSub = currentSub
+            filterPage = 1
+            listState.requestScrollToItem(0)
+        }
     }
 
     val category = categories.firstOrNull { it.id == categoryId }
@@ -365,7 +379,6 @@ fun CategoryComicsScreen(
                             selected = readFilter == f,
                             onClick = {
                                 readFilterName = f.name
-                                viewModel.resetFilterPage()
                                 filterPage = 1
                                 listState.requestScrollToItem(0)
                             },
@@ -381,6 +394,18 @@ fun CategoryComicsScreen(
                 } else {
                     comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
                 }
+            }
+            // 筛选页码按已加载结果的 20 条切片计算，不能沿用服务端 80 条/页的 totalPages
+            val filterPageCount = ((comics.size + 19) / 20).coerceAtLeast(1)
+            val barTotalPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
+                filterPageCount
+            } else {
+                totalPages
+            }
+            val barLoadedPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
+                filterPageCount
+            } else {
+                (comics.size + 19) / 20
             }
             val onBarPageChange: (Int) -> Unit = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
                 { p ->
@@ -402,10 +427,20 @@ fun CategoryComicsScreen(
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = error ?: "加载失败",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = error ?: "加载失败",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "点击重试",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 8.dp)
+                                .clickable { viewModel.jumpToPage(1) },
+                        )
+                    }
                 }
             } else if (displayComics.isEmpty() && !loading) {
                 Box(
@@ -425,11 +460,11 @@ fun CategoryComicsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (totalPages > 1) {
+                if (barTotalPages > 1) {
                     PaginationBar(
                         currentPage = filterPage,
-                        totalPages = totalPages,
-                        loadedPages = (comics.size + 19) / 20,
+                        totalPages = barTotalPages,
+                        loadedPages = barLoadedPages,
                         onPageChange = onBarPageChange,
                         progressMode = readFilter != com.jmread.ui.browse.ReadFilter.ALL,
                     )
@@ -470,8 +505,8 @@ fun CategoryComicsScreen(
                 )
                 PaginationBar(
                     currentPage = filterPage,
-                    totalPages = totalPages,
-                    loadedPages = (comics.size + 19) / 20,
+                    totalPages = barTotalPages,
+                    loadedPages = barLoadedPages,
                     onPageChange = onBarPageChange,
                     progressMode = readFilter != com.jmread.ui.browse.ReadFilter.ALL,
                 )

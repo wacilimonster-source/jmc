@@ -76,11 +76,15 @@ class WeeklyViewModel : ViewModel() {
         _loading.value = true
         _periodsError.value = null
         viewModelScope.launch {
+            var startedSelect = false
             try {
                 val periods = JmRepository.weeklyPeriods()
                 if (_periods.value.isEmpty() && periods.isNotEmpty()) {
                     _periods.value = periods
-                    if (_selected.value == null) select(periods.first())
+                    if (_selected.value == null) {
+                        select(periods.first())
+                        startedSelect = true
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -89,7 +93,9 @@ class WeeklyViewModel : ViewModel() {
                 loaded = false
                 _periodsError.value = e.message ?: "每周必看加载失败"
             } finally {
-                _loading.value = false
+                // select() 自己负责内容加载的 loading 生命周期；这里提前置 false
+                // 会让内容请求还在飞时显示“选择上方期数查看内容”
+                if (!startedSelect) _loading.value = false
             }
         }
     }

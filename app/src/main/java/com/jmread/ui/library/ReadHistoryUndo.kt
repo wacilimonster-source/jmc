@@ -40,23 +40,27 @@ object ReadHistoryUndo {
             job?.cancel()
             job = scope.launch {
                 val count = snapshots.size
+                val message = if (count == 1) {
+                    "已清除《${title.ifBlank { "未知作品" }}》阅读记录"
+                } else {
+                    "已清除 $count 本阅读记录"
+                }
                 val result = try {
                     withTimeoutOrNull(AppSnackbar.undoTimeoutMs) {
                         AppSnackbar.hostState.showSnackbar(
-                            message = if (count == 1) {
-                                "已清除《${title.ifBlank { "未知作品" }}》阅读记录"
-                            } else {
-                                "已清除 $count 本阅读记录"
-                            },
+                            message = message,
                             actionLabel = "撤销",
                             withDismissAction = true,
                             duration = SnackbarDuration.Indefinite,
                         )
                     }
                 } finally {
-                    // 超时/被新一次清除取消时，把当前提示收掉，避免残留。
-                    // 动作触发时 showSnackbar 已自行 dismiss，这里必须容错，不能阻断恢复逻辑。
-                    runCatching { AppSnackbar.hostState.currentSnackbarData?.dismiss() }
+                    // 只收掉本次提示：共享 host 里可能排着别的功能的 snackbar（下载失败等），
+                    // 无条件 dismiss 会把它们一起收掉。
+                    val current = AppSnackbar.hostState.currentSnackbarData
+                    if (current?.visuals?.message == message) {
+                        runCatching { current.dismiss() }
+                    }
                 }
                 val toRestore = if (result == SnackbarResult.ActionPerformed) {
                     snapshots.toList()
@@ -70,7 +74,11 @@ object ReadHistoryUndo {
                 snapshots.clear()
                 toRestore.forEach {
                     LogStore.log("Undo", "I", "restore comic=${it.comicId} recent=${it.recentRead?.comicId}")
-                    LibraryRepository.restoreReadHistory(it)
+                    // 单条恢复失败（磁盘满/IO 错误）不能中断其余快照
+                    runCatching { LibraryRepository.restoreReadHistory(it) }
+                        .onFailure { e ->
+                            LogStore.log("Undo", "E", "restore failed comic=${it.comicId}: ${e.message}")
+                        }
                 }
             }
         }

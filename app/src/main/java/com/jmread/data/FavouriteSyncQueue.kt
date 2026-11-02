@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -31,6 +33,8 @@ object FavouriteSyncQueue {
         /** true=意图收藏，false=意图取消收藏 */
         val add: Boolean,
         val ts: Long,
+        /** 意图所属账号（账号名优先，回退 uid）；空 = 旧版本遗留，按当前账号处理 */
+        val owner: String = "",
     )
 
     private val KEY = stringPreferencesKey("pending_json")
@@ -38,6 +42,11 @@ object FavouriteSyncQueue {
 
     private val _pending = MutableStateFlow<List<PendingOp>>(emptyList())
     val pending: StateFlow<List<PendingOp>> = _pending.asStateFlow()
+
+    /** 队列读改写互斥：flush 的删除不能覆盖 flush 期间新写入的意图 */
+    private val mutex = Mutex()
+    /** 串行化整轮 flush，避免两个入口同时对同一 id 翻转 */
+    private val flushMutex = Mutex()
 
     /** 必须由 JmApp.onCreate 调用（与 Bookmarks 同款守卫：漏 init 只退化为内存态，不崩） */
     private var context: Context? = null
@@ -47,29 +56,46 @@ object FavouriteSyncQueue {
         AppScope.launch { load() }
     }
 
+    private fun currentOwner(): String =
+        SourcePrefs.current().jmAccount.orEmpty()
+            .ifBlank { SourcePrefs.current().jmUid.orEmpty() }
+
     private suspend fun load() {
         val ctx = context ?: return
         runCatching {
             val raw = ctx.favSyncDataStore.data.first()[KEY]
             val list = if (raw.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString<List<PendingOp>>(raw) }.getOrDefault(emptyList())
-            _pending.value = list
+            mutex.withLock {
+                // 预热期间新增的意图优先保留
+                _pending.value = (_pending.value + list).distinctBy { it.comicId }
+            }
         }
     }
 
     /** 记录一条待同步意图；同 id 只保留最新意图 */
     suspend fun enqueue(comicId: String, add: Boolean) {
-        val op = PendingOp(comicId, add, System.currentTimeMillis())
-        val updated = listOf(op) + _pending.value.filterNot { it.comicId == comicId }
-        _pending.value = updated
-        persist(updated)
+        val op = PendingOp(comicId, add, System.currentTimeMillis(), currentOwner())
+        mutex.withLock {
+            val updated = listOf(op) + _pending.value.filterNot { it.comicId == comicId }
+            _pending.value = updated
+            persist(updated)
+        }
     }
 
-    private suspend fun remove(comicId: String) {
-        val updated = _pending.value.filterNot { it.comicId == comicId }
-        if (updated.size == _pending.value.size) return
-        _pending.value = updated
-        persist(updated)
+    /**
+     * 出队。带 [ts] 时只删除同一版意图：
+     * flush 期间用户又点了同一个 id 时，新意图不会被旧 flush 误删。
+     */
+    private suspend fun remove(comicId: String, ts: Long? = null) {
+        mutex.withLock {
+            val updated = _pending.value.filterNot {
+                it.comicId == comicId && (ts == null || it.ts == ts)
+            }
+            if (updated.size == _pending.value.size) return@withLock
+            _pending.value = updated
+            persist(updated)
+        }
     }
 
     private suspend fun persist(list: List<PendingOp>) {
@@ -100,9 +126,14 @@ object FavouriteSyncQueue {
     suspend fun flush(
         reconcile: suspend () -> Set<String>,
         toggle: suspend (String) -> Boolean,
-    ): FlushReport {
-        val ops = _pending.value
-        if (ops.isEmpty()) return FlushReport(0, 0, 0)
+    ): FlushReport = flushMutex.withLock {
+        val owner = currentOwner()
+        val ops = mutex.withLock { _pending.value }
+        if (ops.isEmpty()) return@withLock FlushReport(0, 0, 0)
+        // 只处理当前账号的意图；其他账号的留在队列等它下次登录，绝不在换账号后误翻转
+        val matching = ops.filter { it.owner.isBlank() || it.owner == owner }
+        val skipped = ops.size - matching.size
+        if (matching.isEmpty()) return@withLock FlushReport(0, 0, skipped)
         val cloudIds = try {
             reconcile()
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -110,22 +141,22 @@ object FavouriteSyncQueue {
         } catch (e: Exception) {
             // 对账失败时一张牌都不能出：没有真相就翻转 = 可能翻错方向
             LogStore.log("Library", "W", "同步队列 flush 失败（对账不可用）：${e.message}")
-            return FlushReport(0, 0, ops.size, e.message)
+            return@withLock FlushReport(0, 0, ops.size, e.message)
         }
         var dropped = 0
         var toggled = 0
-        var failed = 0
+        var failed = skipped
         var lastError: String? = null
-        for (step in FavouriteSyncPlan.plan(cloudIds, ops)) {
+        for (step in FavouriteSyncPlan.plan(cloudIds, matching)) {
             when (step.action) {
                 FavouriteSyncPlan.Action.DROP -> {
-                    remove(step.comicId)
+                    remove(step.comicId, step.ts)
                     dropped++
                 }
                 FavouriteSyncPlan.Action.TOGGLE_ADD -> {
                     val now = runCatching { toggle(step.comicId) }.getOrNull()
                     if (now == true) {
-                        remove(step.comicId)
+                        remove(step.comicId, step.ts)
                         toggled++
                     } else {
                         failed++
@@ -135,7 +166,7 @@ object FavouriteSyncQueue {
                 FavouriteSyncPlan.Action.TOGGLE_REMOVE -> {
                     val now = runCatching { toggle(step.comicId) }.getOrNull()
                     if (now == false) {
-                        remove(step.comicId)
+                        remove(step.comicId, step.ts)
                         toggled++
                     } else {
                         failed++
@@ -145,6 +176,6 @@ object FavouriteSyncQueue {
             }
         }
         LogStore.log("Library", "I", "同步队列 flush：出队 ${dropped + toggled}（补翻转 $toggled），留 $failed")
-        return FlushReport(dropped, toggled, failed, lastError)
+        FlushReport(dropped, toggled, failed, lastError)
     }
 }

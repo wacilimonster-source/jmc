@@ -49,6 +49,11 @@ object Bookmarks {
      */
     private var context: Context? = null
 
+    /** 读改写串行化：书架/详情可能同时收藏不同作品，不能各自基于旧快照覆盖。 */
+    private val lock = Any()
+    /** 落盘版本号：异步写只有最新版本才真正执行，防止旧快照后落盘。 */
+    private var writeVersion = 0L
+
     fun init(appContext: Context) {
         context = appContext.applicationContext
         AppScope.launch { load() }
@@ -60,38 +65,59 @@ object Bookmarks {
             val raw = ctx.bookmarksDataStore.data.first()[KEY]
             val list = if (raw.isNullOrBlank()) emptyList()
             else runCatching { json.decodeFromString<List<BookmarkItem>>(raw) }.getOrDefault(emptyList())
-            _items.value = list
+            synchronized(lock) {
+                // 预热期间用户已操作的条目以内存为准，旧磁盘数据只补缺
+                _items.value = if (writeVersion == 0L) {
+                    list
+                } else {
+                    (_items.value + list).distinctBy { it.comicId }
+                }
+            }
         }
     }
 
-    fun contains(comicId: String): Boolean = _items.value.any { it.comicId == comicId }
+    fun contains(comicId: String): Boolean =
+        synchronized(lock) { _items.value.any { it.comicId == comicId } }
 
-    fun get(comicId: String): BookmarkItem? = _items.value.firstOrNull { it.comicId == comicId }
+    fun get(comicId: String): BookmarkItem? =
+        synchronized(lock) { _items.value.firstOrNull { it.comicId == comicId } }
 
     fun add(item: BookmarkItem) {
-        val updated = listOf(item) + _items.value.filterNot { it.comicId == item.comicId }
-        persist(updated)
+        synchronized(lock) {
+            persistLocked(listOf(item) + _items.value.filterNot { it.comicId == item.comicId })
+        }
     }
 
     fun remove(comicId: String) {
-        persist(_items.value.filterNot { it.comicId == comicId })
-    }
-
-    /** 切换收藏态，返回切换后的状态 */
-    fun toggle(comicId: String, title: String, author: String, coverUrl: String, note: String = ""): Boolean {
-        return if (contains(comicId)) {
-            remove(comicId)
-            false
-        } else {
-            add(BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note))
-            true
+        synchronized(lock) {
+            persistLocked(_items.value.filterNot { it.comicId == comicId })
         }
     }
 
-    private fun persist(list: List<BookmarkItem>) {
+    /** 切换收藏态，返回切换后的状态 */
+    fun toggle(comicId: String, title: String, author: String, coverUrl: String, note: String = ""): Boolean =
+        synchronized(lock) {
+            if (_items.value.any { it.comicId == comicId }) {
+                persistLocked(_items.value.filterNot { it.comicId == comicId })
+                false
+            } else {
+                persistLocked(
+                    listOf(
+                        BookmarkItem(comicId, title, author, coverUrl, System.currentTimeMillis(), note),
+                    ) + _items.value,
+                )
+                true
+            }
+        }
+
+    /** 调用方必须持有 [lock]。 */
+    private fun persistLocked(list: List<BookmarkItem>) {
         _items.value = list
         val ctx = context ?: return
+        val version = ++writeVersion
         AppScope.launch {
+            // 更新版本已排队：旧快照直接放弃，避免后写覆盖前写
+            synchronized(lock) { if (version != writeVersion) return@launch }
             runCatching {
                 ctx.bookmarksDataStore.edit { it[KEY] = json.encodeToString(list) }
             }

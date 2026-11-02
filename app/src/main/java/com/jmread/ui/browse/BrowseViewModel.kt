@@ -163,6 +163,12 @@ class BrowseViewModel : ViewModel() {
                 }
                 if (token != loadToken) return@launch
                 rawItems += result.items
+                // 服务端偶发跨页重复；LazyGrid 以 id 为 key，重复会直接崩
+                val deduped = rawItems.distinctBy { it.id }
+                if (deduped.size != rawItems.size) {
+                    rawItems.clear()
+                    rawItems += deduped
+                }
                 _currentPage.value = p
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = p >= result.pages

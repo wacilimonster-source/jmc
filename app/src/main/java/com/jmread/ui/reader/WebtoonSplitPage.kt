@@ -61,6 +61,9 @@ fun WebtoonSplitPage(
     viewportAspect: Float,
     splitEnabled: Boolean,
     onPageMeasured: (pageIndex: Int, ratio: Float, count: Int) -> Unit,
+    /** 页面级重试计数：同页所有切片共享，点一次任意切片即可重试整页 */
+    retryTick: Int = 0,
+    onRetry: () -> Unit = {},
     /** 该切片实际渲染成功（用于 P1-05 末页已读判定；预取/失败占位不触发） */
     onLoaded: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -70,7 +73,6 @@ fun WebtoonSplitPage(
 
     // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）。
     // 手动覆盖后缀必须留在最后：JmImageFetcher 靠 endsWith("#m1/#m0") 识别强制翻转。
-    var retryTick by remember(imageUrl) { mutableIntStateOf(0) }
     val manualSuffix = when {
         imageUrl.endsWith(ImageScrambler.SUFFIX_FORCE_RESTORE) -> ImageScrambler.SUFFIX_FORCE_RESTORE
         imageUrl.endsWith(ImageScrambler.SUFFIX_FORCE_RAW) -> ImageScrambler.SUFFIX_FORCE_RAW
@@ -97,6 +99,8 @@ fun WebtoonSplitPage(
                 width = MAX_DECODE_WIDTH_PX,
                 height = decodeHeightCap,
             ))
+            // 显式 Size + AUTOMATIC 会把小图放大到上限；只缩不放，降低位图峰值
+            .precision(coil.size.Precision.INEXACT)
             // 阅读器不参与列表封面淡入（P2-01）；翻页等待与双图过渡不应叠加
             .crossfade(false)
             .build(),
@@ -172,7 +176,7 @@ fun WebtoonSplitPage(
                     pageIndex = pageIndex,
                     fullHeightPx = totalHeightPx,
                     sliceTopPx = 0,
-                    onRetry = { retryTick++ },
+                    onRetry = onRetry,
                 )
             }
         } else {
@@ -190,7 +194,7 @@ fun WebtoonSplitPage(
                     pageIndex = pageIndex,
                     fullHeightPx = totalHeightPx,
                     sliceTopPx = sliceTopPx,
-                    onRetry = { retryTick++ },
+                    onRetry = onRetry,
                 )
             }
         }

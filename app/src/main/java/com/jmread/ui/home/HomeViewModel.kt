@@ -235,7 +235,13 @@ class HomeViewModel : ViewModel() {
                     comics = content.items,
                 )
             }.getOrNull()
-            if (section != null && section.comics.isNotEmpty()) _weeklySection.value = section
+            if (section != null) {
+                _weeklySection.value = section
+            } else if (_weeklySection.value == null) {
+                // 内容轮换/网络抖动不能让「每周必看」入口整个消失；保留入口，
+                // 独立页内有错误态与重试。
+                _weeklySection.value = HomeWeeklySection(label = "每周必看", comics = emptyList())
+            }
         }
     }
 
@@ -287,6 +293,8 @@ class HomeViewModel : ViewModel() {
                     _rankTotal.value = cached.total
                     _rankCacheAt.value = cached.at
                     _rankError.value = null
+                    // 缓存也有时间戳：否则 rankLoadedAt 恒 0，refreshOnResume 永远不会重试
+                    rankLoadedAt = cached.at
                 } else {
                     if (!force) _rankComics.value = emptyList()
                     _rankCacheAt.value = null

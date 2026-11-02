@@ -223,7 +223,11 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         val doc = chapterProgressDoc(ref)
         val key = ChaptersReadDoc.keyOf(chapterId, order)
         doc.entries.firstOrNull { it.key == key }?.let { return it.pageIndex }
-        doc.entries.firstOrNull { it.order == order }?.let { return it.pageIndex }
+        // 只有「order 回退身份」的旧条目才按 order 兜底；稳定 ID 条目属于另一章，
+        // 目录重排后不能用它的进度冒充本章。
+        doc.entries.firstOrNull {
+            it.order == order && it.key.startsWith("order:")
+        }?.let { return it.pageIndex }
         // 旧数据迁移：只在没有该章记录时，把旧作品进度补进对应章节
         val legacy = runCatching { lastProgressAsync(ref) }.getOrNull() ?: return null
         if (legacy.order != order) return null
@@ -242,9 +246,12 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             if (revision != null && revision != currentRevisionLocked(ref)) return@withLock
             val doc = loadChapterProgressDoc(ref)
             val key = ChaptersReadDoc.keyOf(chapterId, order)
-            // 有稳定 ID 时移除同 order 的回退身份，避免一条章两个键
+            // 有稳定 ID 时移除同 order 的回退身份，避免一条章两个键；
+            // 不能按 order 无条件删，否则目录重排后会删掉另一章的稳定 ID 进度
             val entries = doc.entries
-                .filterNot { it.key == key || it.order == order }
+                .filterNot {
+                    it.key == key || (it.key.startsWith("order:") && it.order == order)
+                }
                 .plus(ChapterProgressEntry(key = key, order = order, pageIndex = pageIndex))
                 .sortedBy { it.order }
             val updated = doc.copy(entries = entries)
