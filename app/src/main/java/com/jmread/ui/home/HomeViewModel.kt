@@ -7,11 +7,13 @@ import com.jmread.core.PromoteBlock
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.RankTab
 import com.jmread.data.RankCache
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 排行榜下方展开的内容分区（/promote 的频道 block） */
 data class HomePromoteSection(
@@ -88,9 +90,11 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             val probed = runCatching { JmRepository.availableRankTabs() }.getOrNull()
             val tabs = probed?.takeIf { it.isNotEmpty() }
-                ?: RankCache.loadTabs()
+                ?: withContext(Dispatchers.IO) { RankCache.loadTabs() }
                 ?: RankTab.optimistic
-            if (probed != null && probed.isNotEmpty()) RankCache.saveTabs(probed)
+            if (probed != null && probed.isNotEmpty()) {
+                withContext(Dispatchers.IO) { RankCache.saveTabs(probed) }
+            }
             _rankTabs.value = tabs
             if (tabs.none { it.value == _rankType.value }) {
                 loadRank(tabs.first().value, force = true)
@@ -261,33 +265,86 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    /** 首屏内容已可见（缓存或网络/失败终态）：分区与档位探测在此之后低优先级触发 */
+    private val _rankFirstContentReady = MutableStateFlow(false)
+    val rankFirstContentReady: StateFlow<Boolean> = _rankFirstContentReady.asStateFlow()
+    private var rankContentReady = false
+
+    private fun markRankContentReady() {
+        if (rankContentReady) return
+        rankContentReady = true
+        _rankFirstContentReady.value = true
+    }
+
+    /**
+     * 首屏榜单已可见后再加载次级内容（PERF-05）：
+     * 档位能力探测会额外打 3 个请求，分区/每周必看又各打 1~2 个，
+     * 与首屏榜单同帧启动会直接争抢带宽与图片预算。
+     */
+    fun onRankContentVisible() {
+        ensureRankTabs()
+        ensureSectionsLoaded()
+    }
+
     /** 排行榜请求代际：快速切榜时旧响应不得覆盖新选择 */
     private var rankGeneration = 0
 
+    /** 当前榜单加载任务：切榜/刷新时取消上一 job，旧请求不再占用连接 */
+    private var rankJob: Job? = null
+
+    /**
+     * 加载榜单（PERF-05）：
+     *  1. 先读该档位的磁盘缓存并在代际仍有效时发布，有缓存就不挡首屏；
+     *  2. 网络成功后再覆盖，空结果同样覆盖旧缓存（避免旧榜单假装仍有效）；
+     *  3. 网络失败时保留缓存并给出可重试提示；
+     *  4. 切榜取消上一 job，JSON 解码与缓存读写全部在 IO。
+     */
     fun loadRank(type: String, force: Boolean = false, startDelayMs: Long = 0) {
         if (!force && _rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
         val gen = ++rankGeneration
+        val typeChanged = _rankType.value != type
         _rankType.value = type
-        if (!force && _rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
+        rankJob?.cancel()
+        // 切档位立刻清空旧内容，避免新档位标题下展示上一档的榜单；
+        // 同档位强制刷新则保留当前内容（缓存先展示）。
+        if (typeChanged) _rankComics.value = emptyList()
         _rankLoading.value = true
         _rankError.value = null
         _rankCacheAt.value = null
-        viewModelScope.launch {
+        rankJob = viewModelScope.launch {
             try {
                 if (startDelayMs > 0) kotlinx.coroutines.delay(startDelayMs)
+
+                // 1) 缓存先展示：读盘/JSON 解码在 IO，代际校验后才发布
+                val cached = withContext(Dispatchers.IO) { RankCache.load(type) }
+                if (gen != rankGeneration) return@launch
+                if (cached != null) {
+                    _rankComics.value = cached.items
+                    _rankTotal.value = cached.total
+                    rankLoadedAt = cached.at
+                    // 刷新进行中不显示「服务端异常」横幅；失败时才标记缓存时间。
+                    // 空缓存不算「内容可见」，继续等网络终态再加载次级入口。
+                    if (cached.items.isNotEmpty()) markRankContentReady()
+                }
+
+                // 2) 网络刷新
                 val result = JmRepository.rank(type)
                 if (gen != rankGeneration) return@launch
                 _rankComics.value = result.items
                 _rankTotal.value = result.total
                 _rankCacheAt.value = null
-                RankCache.save(type, result.items, result.total)
+                _rankError.value = null
+                markRankContentReady()
+                withContext(Dispatchers.IO) { RankCache.save(type, result.items, result.total) }
                 rankLoadedAt = System.currentTimeMillis()
                 _rankRefreshTick.value++
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (gen != rankGeneration) return@launch
-                val cached = RankCache.load(type)
+                // 失败：保留缓存（若首屏已发布则内容仍在），并标记缓存时间供横幅展示
+                val cached = withContext(Dispatchers.IO) { RankCache.load(type) }
+                if (gen != rankGeneration) return@launch
                 if (cached != null) {
                     _rankComics.value = cached.items
                     _rankTotal.value = cached.total
@@ -296,10 +353,11 @@ class HomeViewModel : ViewModel() {
                     // 缓存也有时间戳：否则 rankLoadedAt 恒 0，refreshOnResume 永远不会重试
                     rankLoadedAt = cached.at
                 } else {
-                    if (!force) _rankComics.value = emptyList()
                     _rankCacheAt.value = null
                     _rankError.value = e.message ?: "加载排行榜失败"
                 }
+                // 无缓存且网络失败：首屏已进入错误终态，次级入口仍要可用
+                markRankContentReady()
             } finally {
                 if (gen == rankGeneration) _rankLoading.value = false
             }

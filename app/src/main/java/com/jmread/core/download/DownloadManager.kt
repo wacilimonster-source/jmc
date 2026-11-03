@@ -19,21 +19,28 @@ import coil.request.ImageRequest
 import com.jmread.MainActivity
 import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
+import com.jmread.core.log.PerfTrace
 import com.jmread.core.JmRepository
 import com.jmread.core.netconfig.DomainPool
 import com.jmread.core.scramble.ImageFormatDetector
 import com.jmread.core.scramble.ImageScrambler
+import com.jmread.core.scramble.ImageWorkScheduler
+import com.jmread.core.scramble.readBytesCapped
 import com.jmread.data.DownloadPrefs
 import com.jmread.network.BcTls
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -113,6 +120,43 @@ object DownloadManager {
     private val _tasks = MutableStateFlow<List<TaskRuntime>>(emptyList())
     val tasks: StateFlow<List<TaskRuntime>> = _tasks
 
+    // ---------- 已下载章节内存索引（PERF-07） ----------
+    /**
+     * 结构流：comicId -> 已完成章节号集合。
+     *
+     * 只在**结构**变化（入队/重试/删除/完成/恢复/打开时校验失效）时更新；
+     * 字节进度与速度采样不触碰它。阅读器/详情目录此前订阅整个 tasks 流，
+     * 每次进度/速度变化都对每章 `isDownloaded()` 遍历目录 —— 现在只做内存查询。
+     */
+    private val indexLock = Any()
+    private val downloadedIndex = HashMap<String, MutableSet<Int>>()
+    private val _downloadedStructure = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
+    val downloadedStructure: StateFlow<Map<String, Set<Int>>> = _downloadedStructure.asStateFlow()
+
+    private fun indexAdd(comicId: String, order: Int) {
+        synchronized(indexLock) {
+            downloadedIndex.getOrPut(comicId) { HashSet() }.add(order)
+            publishIndexLocked()
+        }
+    }
+
+    private fun indexRemove(comicId: String, order: Int) {
+        synchronized(indexLock) {
+            val set = downloadedIndex[comicId] ?: return
+            if (set.remove(order)) {
+                if (set.isEmpty()) downloadedIndex.remove(comicId)
+                publishIndexLocked()
+            }
+        }
+    }
+
+    /** 打开章节时的文件校验发现文件缺失：把该章从内存索引摘除（外部删页可检测） */
+    fun invalidateDownloaded(comicId: String, order: Int) = indexRemove(comicId, order)
+
+    private fun publishIndexLocked() {
+        _downloadedStructure.value = downloadedIndex.entries.associate { it.key to it.value.toHashSet() }
+    }
+
     // 派生状态显式化为 StateFlow：UI 直接订阅，避免依赖"某个恰好被读取的 tasks
     // collectAsState()"这类隐式耦合（一旦重构移入 if 分支，刷新会静默失效）。
     val totalBytesFlow: StateFlow<Long> = _tasks
@@ -124,6 +168,9 @@ object DownloadManager {
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     const val CONCURRENCY = 2
+
+    /** 单页最多尝试的 CDN 数：与图片逻辑请求的 4 次传输预算一致 */
+    private const val MAX_DOWNLOAD_HOST_ATTEMPTS = 4
 
     private const val NOTIFY_CHANNEL_ID = "download"
 
@@ -153,8 +200,9 @@ object DownloadManager {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        startPersistWorker()
         // 目录遍历可能较慢，放到后台协程，避免阻塞冷启动主线程
-        scope.launch { restoreTasks() }
+        scope.launch { PerfTrace.asyncSection("download.reconcile") { restoreTasks() } }
         startSpeedSampler()
         runCatching {
             context.getSystemService(ConnectivityManager::class.java)
@@ -229,9 +277,11 @@ object DownloadManager {
                 } else {
                     list.add(TaskRuntime(task))
                 }
+                // 重新入队 = 章节回到未完成：内存索引同步摘除
+                indexRemove(comicId, order)
                 _tasks.value = list
                 addToBatch(comicId, listOf(order))
-                persist()
+                requestPersist()
             }
             pump()
         }
@@ -251,15 +301,20 @@ object DownloadManager {
                 val list = _tasks.value.toMutableList()
                 val addedOrders = mutableSetOf<Int>()
                 var changed = false
+                // PERF-07：入队不做目录扫描。已下载判定只看内存索引/任务状态；
+                // 被外部删页的章节会在打开时校验并摘出索引，之后仍可重新下载。
+                val completed = synchronized(indexLock) {
+                    downloadedIndex[comicId]?.toHashSet() ?: HashSet()
+                }
                 for ((order, epTitle) in chapters) {
-                    if (isDownloaded(comicId, order)) continue
-                    addedOrders += order
                     val key = "$comicId#$order"
+                    val existing = list.firstOrNull { it.key == key }
+                    if (order in completed || existing?.isFinished == true) continue
+                    addedOrders += order
                     deletedKeys.remove(key)
                     val idx = list.indexOfFirst { it.key == key }
                     if (idx >= 0) {
                         val old = list[idx]
-                        if (old.isFinished) continue
                         // 旧执行者还在跑时先取消，避免同一 key 出现两个下载协程
                         if (old.status == DlStatus.DOWNLOADING) cancelRun(key)
                         list[idx] = old.copy(
@@ -267,6 +322,7 @@ object DownloadManager {
                             status = DlStatus.PENDING,
                             error = "",
                         )
+                        indexRemove(comicId, order)
                         changed = true
                     } else {
                         list.add(
@@ -288,7 +344,7 @@ object DownloadManager {
                 if (changed) {
                     _tasks.value = list
                     addToBatch(comicId, addedOrders)
-                    persist()
+                    requestPersist()
                 }
             }
             pump()
@@ -314,8 +370,12 @@ object DownloadManager {
                         )
                     } else it
                 }
-                if (target != null) addToBatch(target.task.comicId, listOf(target.task.order))
-                persist()
+                if (target != null) {
+                    addToBatch(target.task.comicId, listOf(target.task.order))
+                    // 重置回 PENDING：从内存索引摘除，完成后再加回
+                    indexRemove(target.task.comicId, target.task.order)
+                }
+                requestPersist()
             }
             pump()
         }
@@ -329,8 +389,12 @@ object DownloadManager {
                 cancelRun(key)
                 val target = _tasks.value.firstOrNull { it.key == key }
                 _tasks.value = _tasks.value.filterNot { it.key == key }
-                if (target != null) removeFromBatch(target.task.comicId, target.task.order)
-                persist()
+                if (target != null) {
+                    removeFromBatch(target.task.comicId, target.task.order)
+                    indexRemove(target.task.comicId, target.task.order)
+                }
+                // 删除是关键边界：清单必须先落盘（tombstone 不复活），再删文件
+                persistAndAwait()
                 if (deleteFiles && target != null) {
                     chapterDir(target.task.comicId, target.task.order).deleteRecursively()
                 }
@@ -414,7 +478,8 @@ object DownloadManager {
                                 it
                             }
                         }
-                        persist()
+                        refreshSpeedActiveLocked()
+                        requestPersist()
                         toStart += keys
                     }
                 }
@@ -536,6 +601,7 @@ object DownloadManager {
                     it
                 }
             }
+            refreshSpeedActiveLocked()
         }
     }
 
@@ -568,7 +634,7 @@ object DownloadManager {
                                     it.copy(task = it.task.copy(pageCount = pages.size))
                                 } else it
                             }
-                            persist()
+                            requestPersist()
                         }
                     }
                     val dir = chapterDir(t.comicId, t.order)
@@ -611,7 +677,10 @@ object DownloadManager {
                                 it
                             }
                         }
-                        persist()
+                        // 结构变化：该章进入内存索引；完成是关键边界，落盘后再返回
+                        indexAdd(t.comicId, t.order)
+                        refreshSpeedActiveLocked()
+                        persistAndAwait()
                     }
                     maybeNotifyBatch(t.comicId)
                 } catch (e: NetworkGateException) {
@@ -638,7 +707,8 @@ object DownloadManager {
                                     it
                                 }
                             }
-                            persist()
+                            refreshSpeedActiveLocked()
+                            requestPersist()
                         }
                     }
                 }
@@ -665,29 +735,81 @@ object DownloadManager {
      * 图片 CDN 失败时换下一个 host 重试：CDN 域名与 API 是两套，
      * 且各 CDN 会按区域被 DNS 屏蔽（实测 *.jmapiproxy3.cc 被解析到 127.0.0.1）。
      * 只试一个 host 的话，整本书的下载会卡在同一个不可用 CDN 上。
+     *
+     * 资源顺序（PERF-02）：网络传输只在 [ImageWorkScheduler] 的下载配额内进行，
+     * 拿到字节后立即释放网络槽位，再进入像素处理预算，避免“拿着网络名额做计算”。
+     * 单页最多 4 次实际传输，防止 7 个 CDN 候选把失败放大。
      */
     private suspend fun downloadFile(urlStr: String, dest: File, runTag: String): Long {
         val first = URL(urlStr)
         // 各 CDN 的路径完全一致（/media/photos/{id}/{file}），只换 host 即可
         val pathAndQuery = first.file
         var lastError: Exception? = null
+        var attempts = 0
         for (host in DomainPool.imageHostOrder(first.host)) {
+            if (attempts >= MAX_DOWNLOAD_HOST_ATTEMPTS) break
+            attempts++
             val gate = currentGate()
             if (gate != NetworkGate.ALLOWED) throw NetworkGateException(gate)
-            try {
-                val size = fetchToFile("https://$host$pathAndQuery", dest, runTag)
-                DomainPool.markImageGood(host)
-                return size
+
+            // 1) 网络阶段：失败才是 CDN 故障，换下一条线路
+            val bytes = try {
+                ImageWorkScheduler.withSlot(
+                    ImageWorkScheduler.Priority.DOWNLOAD,
+                    host,
+                ) {
+                    fetchBytes("https://$host$pathAndQuery")
+                }
+            } catch (e: NetworkGateException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 DomainPool.markImageBad(host)
-                LogStore.log("jm-dl", "WARN", "下载图片 CDN $host 失败，换下一条线路：${e.message?.take(70)}")
+                LogStore.log(
+                    "jm-dl", "WARN",
+                    "下载图片 CDN $host 失败，换下一条线路：${e.message?.take(70)}",
+                )
+                continue
             }
+
+            // 2) 200 + 风控页/空响应：属于该 CDN 的异常，换线有意义
+            if (!ImageFormatDetector.isImage(bytes)) {
+                lastError = IOException("响应不是有效图片（${bytes.size} bytes）")
+                DomainPool.markImageBad(host)
+                LogStore.log(
+                    "jm-dl", "WARN",
+                    "下载图片 CDN $host 返回非图片（${bytes.size} bytes），换下一条线路",
+                )
+                continue
+            }
+
+            // 3) 处理/落盘失败不是 CDN 故障：换线只会把同一张图再下一遍
+            try {
+                val processed = ImageScrambler.processBytesIfNeeded(
+                    urlStr,
+                    bytes,
+                    maxHeight = MemoryBudget.maxDecodeHeightPx(appContext),
+                )
+                writeProcessed(dest, runTag, processed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogStore.log(
+                    "jm-dl", "E",
+                    "下载图片处理/落盘失败（不换线）：${e.message?.take(70)}",
+                )
+                throw e
+            }
+            DomainPool.markImageGood(host)
+            return dest.length()
         }
         throw lastError ?: IOException("下载失败（所有 CDN 均不可用）: $urlStr")
     }
 
-    private fun fetchToFile(urlStr: String, dest: File, runTag: String): Long {
+    /** 纯网络阶段：只负责取字节，取消时断开连接。 */
+    private suspend fun fetchBytes(urlStr: String): ByteArray {
         val url = URL(urlStr)
         val conn: HttpURLConnection = if (url.protocol == "https") {
             BcTls.openConnection(url)
@@ -697,42 +819,84 @@ object DownloadManager {
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
         conn.setRequestProperty("User-Agent", "okhttp/4.12.0")
+        // 取消绑定：任务被删除/重试接管时断开连接，阻塞读立刻失败，不再占带宽
+        val job = kotlinx.coroutines.currentCoroutineContext()[Job]
+        val cancelHandle = job?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) runCatching { conn.disconnect() }
+        }
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
-            val tmp = File(dest.parentFile, "${dest.name}.$runTag.part")
-            try {
-                val bytes = conn.inputStream.use { input -> input.readBytes() }
-                // CDN 可能返回 200 + HTML 风控页/空响应；非图片字节不能落盘冒充页面
-                if (!ImageFormatDetector.isImage(bytes)) {
-                    throw IOException("响应不是有效图片（${bytes.size} bytes）")
-                }
-                // 章节图判定乱序并还原后落盘（Android 渲染按内容解码，文件名扩展名不影响）；未命中原样落盘
-                val processed = ImageScrambler.processBytesIfNeeded(
-                    urlStr,
-                    bytes,
-                    maxHeight = MemoryBudget.maxDecodeHeightPx(appContext),
-                )
-                tmp.outputStream().use { output -> output.write(processed) }
-                if (!tmp.renameTo(dest)) {
-                    tmp.copyTo(dest, overwrite = true)
-                    tmp.delete()
-                }
-            } catch (e: Exception) {
-                // 失败即清理半成品，避免 .part 残留占用空间且磁盘占用不可见
-                tmp.delete()
-                throw e
-            }
-            return dest.length()
+            return conn.inputStream.use { input -> input.readBytesCapped() }
         } finally {
+            cancelHandle?.dispose()
             conn.disconnect()
         }
     }
 
-    // ── 持久化 ────────────────────────────────────────────────────────────
+    /** 原子落盘：先写 .part 再 rename，失败清理半成品。 */
+    private fun writeProcessed(dest: File, runTag: String, bytes: ByteArray) {
+        val tmp = File(dest.parentFile, "${dest.name}.$runTag.part")
+        try {
+            tmp.outputStream().use { output -> output.write(bytes) }
+            if (!tmp.renameTo(dest)) {
+                tmp.copyTo(dest, overwrite = true)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            // 失败即清理半成品，避免 .part 残留占用空间且磁盘占用不可见
+            tmp.delete()
+            throw e
+        }
+    }
+
+    // ── 持久化（单写者，PERF-07） ─────────────────────────────────────────
     private fun manifestFile(): File = File(rootDir(), "manifest.json")
 
-    private fun persist() {
+    /**
+     * 旧实现在持有 mutex 的调用线程上同步写盘：每次入队/完成/失败都串行化
+     * 整个任务列表 JSON，进度高峰期会拖慢调度。现在改为单写者协程：
+     *  - 非关键写（入队/页数回填/失败）进通道，突发请求合并为一次写盘；
+     *  - 关键写（完成/删除）经 [persistAndAwait] 拿到落盘边界后才继续；
+     *  - 写盘始终读最新快照，通道里排队多份也只写最终状态。
+     * `.part` 隔离、恢复合并与 tombstone 语义保持不变。
+     */
+    private class PersistRequest(val gate: CompletableDeferred<Unit>? = null)
+
+    private val persistChannel = Channel<PersistRequest>(Channel.UNLIMITED)
+    @Volatile private var persistWorkerStarted = false
+
+    private fun startPersistWorker() {
+        if (persistWorkerStarted) return
+        persistWorkerStarted = true
+        scope.launch {
+            for (request in persistChannel) {
+                // 排空积压：中间态合并成一次写盘，但每个 gate 都要被完成
+                val gates = mutableListOf<CompletableDeferred<Unit>?>()
+                gates += request.gate
+                while (true) {
+                    val next = persistChannel.tryReceive().getOrNull() ?: break
+                    gates += next.gate
+                }
+                writeManifest()
+                gates.forEach { it?.complete(Unit) }
+            }
+        }
+    }
+
+    /** 非关键持久化请求：多次合并为一次写盘。 */
+    private fun requestPersist() {
+        persistChannel.trySend(PersistRequest())
+    }
+
+    /** 关键持久化边界：等待清单实际写盘完成（不持锁 —— writeManifest 只读快照）。 */
+    private suspend fun persistAndAwait() {
+        val gate = CompletableDeferred<Unit>()
+        persistChannel.send(PersistRequest(gate))
+        gate.await()
+    }
+
+    private fun writeManifest() {
         try {
             manifestFile().parentFile?.mkdirs()
             val tasks = _tasks.value
@@ -781,9 +945,23 @@ object DownloadManager {
             }
             mutex.withLock {
                 val current = _tasks.value
-                _tasks.value = mergeRestoredTasks(current, restored, deletedKeys.toSet())
+                val merged = mergeRestoredTasks(current, restored, deletedKeys.toSet())
+                _tasks.value = merged
+                // PERF-07：恢复本来就逐章扫描过目录，这里顺手一次性建立内存索引，
+                // 之后阅读器/详情目录的"已下载"查询全部走内存
+                synchronized(indexLock) {
+                    downloadedIndex.clear()
+                    for (task in merged) {
+                        if (task.status == DlStatus.COMPLETED) {
+                            downloadedIndex.getOrPut(task.task.comicId) { HashSet() }
+                                .add(task.task.order)
+                        }
+                    }
+                    publishIndexLocked()
+                }
+                refreshSpeedActiveLocked()
                 // 合并结果必须立刻落盘：恢复期间发生的 enqueue 可能已用旧列表覆盖过清单
-                persist()
+                persistAndAwait()
             }
         } catch (e: Exception) {
             // 恢复失败必须可见：静默吞掉会让内存列表为空，之后任意一次 persist
@@ -800,45 +978,55 @@ object DownloadManager {
     // ── 速度采样 ──────────────────────────────────────────────────────────
 
     /**
-     * 速度采样：无活跃任务时进入低频空转（5 秒一次且不做任何状态写入），
-     * 避免应用全程每秒唤醒、争抢 mutex 并重建任务列表触发无谓的 StateFlow 更新。
+     * 速度采样活跃信号（PERF-07）：有 DOWNLOADING 任务才唤醒采样循环。
+     * 旧实现常驻每 5 秒空转轮询任务列表；现在空闲时挂起、零唤醒，
+     * 且只对速度值真正变化的任务重建列表。
      */
+    private val speedActive = MutableStateFlow(false)
+
+    /** 必须在持有 [mutex] 时调用（任务状态刚发生变化）。 */
+    private fun refreshSpeedActiveLocked() {
+        speedActive.value = _tasks.value.any { it.status == DlStatus.DOWNLOADING }
+    }
+
     private fun startSpeedSampler() {
         scope.launch {
-            var prevBytes = 0L
-            var prevAt = 0L
             while (true) {
-                val snapshot = _tasks.value
-                if (snapshot.none { it.status == DlStatus.DOWNLOADING }) {
-                    // 从活跃转为空闲：清零一次速度，随后低频休眠
-                    if (prevAt != 0L) {
+                speedActive.first { it }
+                var prevBytes = 0L
+                var prevAt = 0L
+                while (speedActive.value) {
+                    val now = System.currentTimeMillis()
+                    val bytes = _tasks.value.sumOf { it.totalBytes }
+                    if (prevAt != 0L && now - prevAt >= 1500) {
+                        val speed = ((bytes - prevBytes) * 1000L / (now - prevAt)).coerceAtLeast(0L)
                         mutex.withLock {
                             _tasks.value = _tasks.value.map {
-                                if (it.bytesPerSecond != 0L) it.copy(bytesPerSecond = 0) else it
+                                when {
+                                    it.status == DlStatus.DOWNLOADING && it.bytesPerSecond != speed ->
+                                        it.copy(bytesPerSecond = speed)
+                                    it.status != DlStatus.DOWNLOADING && it.bytesPerSecond != 0L ->
+                                        it.copy(bytesPerSecond = 0)
+                                    else -> it
+                                }
                             }
+                            // 采样期间任务可能全部结束/被删：及时收回活跃信号
+                            refreshSpeedActiveLocked()
                         }
-                        prevAt = 0L
-                        prevBytes = 0L
+                        prevBytes = bytes
+                        prevAt = now
+                    } else if (prevAt == 0L) {
+                        prevBytes = bytes
+                        prevAt = now
                     }
-                    delay(5_000)
-                    continue
+                    delay(1_000)
                 }
-                val now = System.currentTimeMillis()
-                val bytes = snapshot.sumOf { it.totalBytes }
-                if (prevAt != 0L && now - prevAt >= 1500) {
-                    val speed = ((bytes - prevBytes) * 1000L / (now - prevAt)).coerceAtLeast(0L)
-                    mutex.withLock {
-                        _tasks.value = _tasks.value.map {
-                            if (it.status == DlStatus.DOWNLOADING) it.copy(bytesPerSecond = speed) else it.copy(bytesPerSecond = 0)
-                        }
+                // 从活跃转空闲：清零一次速度
+                mutex.withLock {
+                    _tasks.value = _tasks.value.map {
+                        if (it.bytesPerSecond != 0L) it.copy(bytesPerSecond = 0) else it
                     }
-                    prevBytes = bytes
-                    prevAt = now
-                } else if (prevAt == 0L) {
-                    prevBytes = bytes
-                    prevAt = now
                 }
-                delay(1000)
             }
         }
     }

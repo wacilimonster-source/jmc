@@ -107,15 +107,15 @@ object BcTls {
             OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                // 每主机 8 路：阅读器可见页 + 预取 + 多切片并发足够，
-                // 又不至于把 CDN 打出限流；自动重试名额 6 低于此值，保留正常请求槽位。
+                // 图片并发由 ImageWorkScheduler 统一记账（可见/预取/下载 + 全局/每 host），
+                // 这里只保留 OkHttp 自身的异步队列上限。不再挂 Thread.sleep 式 HTTP 重试：
+                // 重试统一收敛到 ImageRetryBudget（PERF-03），避免各层预算相乘。
                 .dispatcher(
                     okhttp3.Dispatcher().apply {
                         maxRequests = 64
                         maxRequestsPerHost = 8
                     },
                 )
-                .addInterceptor(com.jmread.core.scramble.ImageRetryInterceptor())
         ).build()
     }
 

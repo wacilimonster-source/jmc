@@ -96,6 +96,7 @@ fun HomeScreen(
     val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
     val rankTotal by viewModel.rankTotal.collectAsState()
     val rankCacheAt by viewModel.rankCacheAt.collectAsState()
+    val rankFirstContentReady by viewModel.rankFirstContentReady.collectAsState()
     val promoteSections by viewModel.promoteSections.collectAsState()
     val weeklySection by viewModel.weeklySection.collectAsState()
     val sectionsLoading by viewModel.sectionsLoading.collectAsState()
@@ -165,13 +166,16 @@ fun HomeScreen(
 
     LaunchedEffect(Unit) {
         com.jmread.core.update.UpdateState.checkOnce()
-        viewModel.ensureRankTabs()
         viewModel.loadRank(rankType)
-        viewModel.ensureSectionsLoaded()
         followViewModel.ensureTargets()
         // 首屏是排行榜；关注流延后启动，避免两条请求链同帧撞车
         if (selectedTab != 0) delay(900)
         followViewModel.initialRefresh()
+    }
+
+    // PERF-05：榜单内容可见后才做档位探测与分区加载，避免与首屏抢请求/图片预算
+    LaunchedEffect(rankFirstContentReady) {
+        if (rankFirstContentReady) viewModel.onRankContentVisible()
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {

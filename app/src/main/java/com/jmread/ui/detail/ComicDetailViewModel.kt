@@ -258,13 +258,18 @@ class ComicDetailViewModel : ViewModel() {
     fun observeDownloaded(comicId: String) {
         downloadedJob?.cancel()
         downloadedJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(_chapters, com.jmread.core.download.DownloadManager.tasks) { chs, _ -> chs }
-                .collectLatest { chs ->
-                    val set = chs.asSequence()
+            // PERF-07：订阅结构流（入队/完成/删除/恢复才变化），
+            // 下载进度/速度更新不再触发逐章 isDownloaded 的目录扫描
+            kotlinx.coroutines.flow.combine(
+                _chapters,
+                com.jmread.core.download.DownloadManager.downloadedStructure,
+            ) { chs, structure -> chs to structure }
+                .collectLatest { (chs, structure) ->
+                    val completed = structure[comicId] ?: emptySet()
+                    _downloadedOrders.value = chs.asSequence()
                         .map { it.order }
-                        .filter { com.jmread.core.download.DownloadManager.isDownloaded(comicId, it) }
+                        .filter { it in completed }
                         .toSet()
-                    _downloadedOrders.value = set
                 }
         }
     }

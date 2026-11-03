@@ -3,6 +3,7 @@ package com.jmread.core
 import android.app.ActivityManager
 import android.content.ComponentCallbacks2
 import android.content.Context
+import com.jmread.core.scramble.ImageProcessingBudget
 
 /**
  * 进程级内存预算：统一低内存档位、预取开关与图片缓存清理时机。
@@ -27,6 +28,10 @@ object MemoryBudget {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         lowRamDevice = am?.isLowRamDevice == true
         memoryClassMb = am?.memoryClass ?: 192
+        // PERF-01：图片还原/压缩的总字节预算按设备档位注入（低内存只允许一张进入还原）
+        ImageProcessingBudget.configureForDevice(lowRamDevice, memoryClassMb)
+        // PERF-02：图片传输配额同档位收敛（低内存全局 2 路、预取 0）
+        com.jmread.core.scramble.ImageWorkScheduler.configure(lowRamDevice || memoryClassMb <= 128)
     }
 
     /** 设备本身低内存（isLowRamDevice 或 memoryClass ≤ 128MB） */

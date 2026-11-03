@@ -187,6 +187,18 @@ fun ReaderScreen(
     }
 
     var brightness by remember { mutableFloatStateOf(ReaderPrefs.current().brightness) }
+    // PERF-09：设置状态一次性加载（不再 runBlocking 回退读盘）。未就绪先显示加载态，
+    // 就绪后一次性应用阅读模式与亮度，避免"默认值先渲染、读到真值再跳变"。
+    val hotSettings by ReaderPrefs.current().hotSettings.collectAsState()
+    var settingsApplied by remember { mutableStateOf(false) }
+    var brightnessAdjusted by remember { mutableStateOf(false) }
+    LaunchedEffect(hotSettings.ready) {
+        if (hotSettings.ready && !settingsApplied) {
+            settingsApplied = true
+            scrollMode = hotSettings.readerMode == 0
+            if (!brightnessAdjusted) brightness = hotSettings.brightness
+        }
+    }
     var zoomScale by remember { mutableFloatStateOf(1f) }
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
@@ -243,7 +255,11 @@ fun ReaderScreen(
     // 屏幕常亮
     DisposableEffect(Unit) {
         view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        onDispose {
+            view.keepScreenOn = false
+            // 退出阅读器：立即按旧章节身份提交未落盘的切片测量（PERF-08）
+            com.jmread.data.WebtoonSliceCache.flushNow()
+        }
     }
 
     // 音量键需要焦点：进入阅读器即请求一次
@@ -270,8 +286,10 @@ fun ReaderScreen(
     }
     // 切章必须以 VM 的当前章节为准清空并预置切片数缓存：
     // 路由 order 在切章后不变，按它做 key 会让上一章的切片数污染新章的行换算；
-    // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早
+    // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早。
+    // 切章前先按旧章节身份提交未落盘的切片测量（PERF-08，不把旧结果写进新章）
     LaunchedEffect(vmOrder, pages.size) {
+        com.jmread.data.WebtoonSliceCache.flushNow()
         sliceCounts.clear()
         pageRatios.clear()
         if (pages.isNotEmpty()) {
@@ -282,19 +300,26 @@ fun ReaderScreen(
             }
         }
     }
-    val rows: List<Pair<Int, Int>> = if (scrollMode) {
-        buildList {
-            for (p in pages.indices) {
-                val n = (sliceCounts[p] ?: 1).coerceAtLeast(1)
-                repeat(n) { s -> add(p to s) }
+    // PERF-08：rows/前缀和放进派生模型。读取 sliceCounts（SnapshotStateMap）参与订阅，
+    // 页码/工具栏/亮度变化只会命中派生缓存，不再全章重建 List；
+    // remember 以 pages 列表身份 + 模式为 key —— 禁止只用 pages.size，同页数换章也必须换模型。
+    val rows: List<Pair<Int, Int>> by remember(pages, scrollMode) {
+        derivedStateOf {
+            if (scrollMode) {
+                buildList {
+                    for (p in pages.indices) {
+                        val n = (sliceCounts[p] ?: 1).coerceAtLeast(1)
+                        repeat(n) { s -> add(p to s) }
+                    }
+                }
+            } else {
+                pages.indices.map { it to 0 }
             }
         }
-    } else {
-        pages.indices.map { it to 0 }
     }
 
     // 切片前缀和：sliceCounts 变化时重建一次（O(n)），行→页查询降为 O(log n)
-    val rowPrefix by remember(pages.size, scrollMode) {
+    val rowPrefix: IntArray by remember(pages, scrollMode) {
         derivedStateOf {
             val arr = IntArray(pages.size + 1)
             for (p in pages.indices) {
@@ -647,6 +672,7 @@ fun ReaderScreen(
                     brightness = brightness,
                     onBrightnessChange = {
                         brightness = it
+                        brightnessAdjusted = true
                         ReaderPrefs.current().brightness = it
                     },
                     currentPage = currentPage + 1,
@@ -742,6 +768,14 @@ fun ReaderScreen(
                 },
         ) {
             when {
+                // PERF-09：热点设置未就绪（极冷启动直达阅读器）先显示加载态，
+                // 避免用默认阅读模式/亮度渲染一帧再跳变
+                !(hotSettings.ready && settingsApplied) -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+
                 pages.isEmpty() && loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color.White)
@@ -771,6 +805,8 @@ fun ReaderScreen(
                                 val (p, s) = rows[index]
                                 "row_${p}_$s"
                             },
+                            // 稳定 contentType：所有行都是同一种渲染（PERF-08）
+                            contentType = { "webtoon_row" },
                         ) { index ->
                             val (pageIndex, sliceIndex) = rows[index]
                             val orderSnapshot = vmOrder
@@ -790,6 +826,7 @@ fun ReaderScreen(
                                 onPageMeasured = { p, ratio, n ->
                                     if (orderSnapshot == vmOrder) {
                                         val old = pageRatios[p]
+                                        // 比例容差：变化 <0.5% 视为同一测量，不重复上报
                                         val prevRatio = if (old != null &&
                                             kotlin.math.abs(old - ratio) <= old * 0.005f
                                         ) ratio else old
@@ -797,8 +834,9 @@ fun ReaderScreen(
                                         if (prevRatio != ratio) pageRatios[p] = ratio
                                         if (prevCount != n) sliceCounts[p] = n
                                         if (n > 1 && (prevRatio != ratio || prevCount != n)) {
-                                            com.jmread.data.WebtoonSliceCache.putAll(
-                                                context, ref, orderSnapshot,
+                                            // PERF-08：进内存缓冲，由单写者 IO 合并提交
+                                            com.jmread.data.WebtoonSliceCache.putBatched(
+                                                ref, orderSnapshot,
                                                 mapOf(p to com.jmread.data.SliceInfo(n, ratio)),
                                             )
                                         }

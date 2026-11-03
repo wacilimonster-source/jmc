@@ -147,40 +147,41 @@ object JmClient {
             }
 
             try {
-                client.newCall(builder.build()).execute().use { resp ->
-                    val text = resp.body?.string().orEmpty()
+                // enqueue + 取消绑定：页面/搜索切走后不再有僵尸请求占着连接
+                val (code, text) = client.withCall(builder.build()) { resp ->
                     if (resp.code == 401) {
                         android.util.Log.w(
                             "JmClient",
                             "401 host=$host relative=$relative hasSession=${!session.isNullOrEmpty()}",
                         )
                     }
-                    if (resp.code == 401 && !retriedAuth) {
-                        // 会话失效：静默重登后重试一次（结构性判断，不靠文案）
-                        onUnauthorizedHook?.invoke()
-                        return@withContext execute(relative, form, retriedAuth = true)
-                    }
-                    if (resp.code == 401) {
-                        val msg = apiErrorMessage(text) ?: text.take(120)
-                        throw JmException("禁漫接口 401：$msg", 401)
-                    }
-                    if (isRetryableHttpStatus(resp.code)) {
-                        // 5xx / 429 是服务端或网关故障：换一条线路大概率能成。
-                        // 实测 2026-09-21：/search 在 4 个内置镜像上随机返回 HTTP 500（空体），
-                        // 同一时刻总有镜像返回 200 —— 不换域就等于把「换条线路就好」变成硬失败。
-                        throw IOException("禁漫接口 ${resp.code}（服务端故障，换域重试）：${text.take(80)}")
-                    }
-                    if (!resp.isSuccessful) {
-                        val msg = apiErrorMessage(text) ?: text.take(120)
-                        throw JmException("禁漫接口 ${resp.code}: $msg", resp.code)
-                    }
-                    if (text.trimStart().firstOrNull() != '{') {
-                        // 网关异常页 / 风控页等非 JSON 响应：当作该 host 故障处理
-                        throw IOException("响应非 JSON（host=$host）：${text.take(60)}")
-                    }
-                    DomainPool.markGood(host)
-                    return@withContext decryptEnvelope(text, sign.ts)
+                    resp.code to resp.body?.string().orEmpty()
                 }
+                if (code == 401 && !retriedAuth) {
+                    // 会话失效：静默重登后重试一次（结构性判断，不靠文案）
+                    onUnauthorizedHook?.invoke()
+                    return@withContext execute(relative, form, retriedAuth = true)
+                }
+                if (code == 401) {
+                    val msg = apiErrorMessage(text) ?: text.take(120)
+                    throw JmException("禁漫接口 401：$msg", 401)
+                }
+                if (isRetryableHttpStatus(code)) {
+                    // 5xx / 429 是服务端或网关故障：换一条线路大概率能成。
+                    // 实测 2026-09-21：/search 在 4 个内置镜像上随机返回 HTTP 500（空体），
+                    // 同一时刻总有镜像返回 200 —— 不换域就等于把「换条线路就好」变成硬失败。
+                    throw IOException("禁漫接口 ${code}（服务端故障，换域重试）：${text.take(80)}")
+                }
+                if (code !in 200..299) {
+                    val msg = apiErrorMessage(text) ?: text.take(120)
+                    throw JmException("禁漫接口 ${code}: $msg", code)
+                }
+                if (text.trimStart().firstOrNull() != '{') {
+                    // 网关异常页 / 风控页等非 JSON 响应：当作该 host 故障处理
+                    throw IOException("响应非 JSON（host=$host）：${text.take(60)}")
+                }
+                DomainPool.markGood(host)
+                return@withContext decryptEnvelope(text, sign.ts)
             } catch (e: JmException) {
                 // 业务异常（401/4xx）：换域无意义，直接上抛
                 throw e

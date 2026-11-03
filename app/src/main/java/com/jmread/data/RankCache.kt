@@ -45,7 +45,8 @@ object RankCache {
         val items = p.getString("list_$k", null)
             ?.let { runCatching { json.decodeFromString<List<ComicSummary>>(it) }.getOrNull() }
             ?: return null
-        if (items.isEmpty()) return null
+        // 空列表也是「上次成功结果」：成功空榜必须覆盖旧缓存，
+        // 不能让用户误以为旧榜单仍然有效（PERF-05）。
         return CachedRank(items = items, total = p.getInt("total_$k", 0), at = at)
     }
 

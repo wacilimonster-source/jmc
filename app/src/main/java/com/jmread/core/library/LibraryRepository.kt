@@ -82,13 +82,15 @@ object LibraryRepository {
         localVersion,
         _cloud,
     ) { bookmarks, _, _, cloudState ->
-        LibraryMerge.merge(
-            bookmarks = bookmarks,
-            recents = ReaderPrefs.current().recentReadsAsync(),
-            cloudFavourites = cloudState.favourites,
-            cloudHistory = cloudState.history,
-            statusOf = { ReaderStatus.of(it) },
-        )
+        com.jmread.core.log.PerfTrace.section("library.merge") {
+            LibraryMerge.merge(
+                bookmarks = bookmarks,
+                recents = ReaderPrefs.current().recentReadsAsync(),
+                cloudFavourites = cloudState.favourites,
+                cloudHistory = cloudState.history,
+                statusOf = { ReaderStatus.of(it) },
+            )
+        }
     }.stateIn(com.jmread.core.AppScope.IO, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
 
     // ---------- 云端加载 ----------

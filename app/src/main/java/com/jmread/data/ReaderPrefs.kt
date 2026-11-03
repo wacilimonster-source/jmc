@@ -102,6 +102,18 @@ data class ReadHistorySnapshot(
 )
 
 /**
+ * 阅读热点设置快照（PERF-09）：DataStore 一次性加载完成后 ready=true。
+ * UI 等就绪后取值；getter 在未就绪时返回默认值而**不是 runBlocking 读盘**。
+ */
+data class ReaderHotSettings(
+    val ready: Boolean = false,
+    /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
+    val readerMode: Int = 0,
+    /** 阅读亮度（1.0 为原亮度） */
+    val brightness: Float = 1.0f,
+)
+
+/**
  * 阅读器偏好：本地阅读进度 / 阅读模式 / 亮度 / 每章进度 / 已读章节。
  *
  * 云端进度同步不可行（当前数据源 API 无进度接口），本地进度保证换章、重进可续读。
@@ -130,15 +142,31 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     }
 
     /** 后台预热：只填热点值，recentReads 体积大仍走懒加载 */
-    private fun loadCache() {
+    private suspend fun loadCache() {
+        var mode: Int? = null
+        var bright: Float? = null
         runCatching {
-            runBlocking {
+            // 已在 ioScope 后台线程：这里允许阻塞等待首次读取。
+            // 2s 超时兜底：DataStore 异常时降级默认值，UI 不至于永久等待 ready。
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
                 val prefs = appContext.readerDataStore.data.first()
-                cachedReaderMode = prefs[intPreferencesKey(ReaderKeys.READER_MODE)]
-                cachedBrightness = prefs[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
+                mode = prefs[intPreferencesKey(ReaderKeys.READER_MODE)]
+                bright = prefs[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
             }
         }
+        cachedReaderMode = mode ?: 0
+        cachedBrightness = bright ?: 1.0f
+        // 读取完成（含失败降级默认值）才置 ready：UI 等这个信号，不再有 runBlocking 回退
+        _hotSettings.value = ReaderHotSettings(
+            ready = true,
+            readerMode = cachedReaderMode ?: 0,
+            brightness = cachedBrightness ?: 1.0f,
+        )
     }
+
+    /** 阅读热点设置状态流：阅读器等 ready 后再渲染，避免默认亮度/模式先显示再跳变 */
+    private val _hotSettings = MutableStateFlow(ReaderHotSettings())
+    val hotSettings: StateFlow<ReaderHotSettings> = _hotSettings.asStateFlow()
 
     /** 后台写盘作用域：setter 只更新内存缓存后投递到这里，绝不在调用线程同步等待落盘。
      *
@@ -520,16 +548,15 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     private var readerModeJob: kotlinx.coroutines.Job? = null
     private var brightnessJob: kotlinx.coroutines.Job? = null
 
-    /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
+    /** 阅读模式：0=滚动流（条漫），1=横滑翻页。
+     *  PERF-09：未就绪时返回默认值 0（UI 等 [hotSettings] 就绪后再渲染），绝不 runBlocking。 */
     var readerMode: Int
         get() = cachedReaderMode
-            ?: runCatching {
-                runBlocking {
-                    appContext.readerDataStore.data.first()[intPreferencesKey(ReaderKeys.READER_MODE)]
-                }
-            }.getOrNull() ?: 0
+            ?: _hotSettings.value.takeIf { it.ready }?.readerMode
+            ?: 0
         set(value) {
             cachedReaderMode = value
+            _hotSettings.value = _hotSettings.value.copy(ready = true, readerMode = value)
             // 单次事件：投递后台落盘，不阻塞调用线程（此前为 runBlocking 同步写）
             readerModeJob?.cancel()
             readerModeJob = ioScope.launch {
@@ -541,17 +568,15 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             }
         }
 
-    /** 阅读亮度（1.0 为原亮度，越小越暗） */
+    /** 阅读亮度（1.0 为原亮度，越小越暗）。未就绪返回默认 1.0，绝不 runBlocking。 */
     var brightness: Float
         get() = cachedBrightness
-            ?: runCatching {
-                runBlocking {
-                    appContext.readerDataStore.data.first()[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
-                }
-            }.getOrNull() ?: 1.0f
+            ?: _hotSettings.value.takeIf { it.ready }?.brightness
+            ?: 1.0f
         set(value) {
             val v = value.coerceIn(0.2f, 1.0f)
             cachedBrightness = v
+            _hotSettings.value = _hotSettings.value.copy(ready = true, brightness = v)
             // 关键修复：Slider 拖动时逐帧回调，此前 runBlocking 会让主线程每帧同步等落盘，
             // 表现为滑条严重卡顿（低端机可 ANR）。改为内存即时生效 + 后台合并落盘。
             brightnessJob?.cancel()

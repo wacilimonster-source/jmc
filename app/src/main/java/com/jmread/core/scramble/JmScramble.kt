@@ -50,20 +50,41 @@ object JmScramble {
     }
 
     /**
-     * 还原：存储图自下而上第 i 条（首条带余数行）放回目标图自上而下第 i 条。
+     * 一条条带的搬运计划：源图 [srcY] 起 [rows] 行 → 目标图 [dstY] 起同高。
+     *
+     * 位图路径直接用整数矩形 `Canvas.drawBitmap` 搬运（关闭滤波，源/目标矩形同尺寸），
+     * 不需要两份全图 IntArray；像素数组路径用同一计划做 `arraycopy`，
+     * 保证两条实现逐像素一致。
+     */
+    data class Strip(val srcY: Int, val dstY: Int, val rows: Int)
+
+    /**
+     * 还原条带计划：存储图自下而上第 i 条（首条带余数行）放回目标图自上而下第 i 条。
      * 余数行归属与官方实现一致：目标首条高 base+rem，存储图余数在最底部那条。
      */
-    fun restore(pixels: IntArray, w: Int, h: Int, segments: Int): IntArray {
-        if (segments <= 1 || w <= 0 || h < segments) return pixels
-        val out = IntArray(pixels.size)
+    fun restoreStrips(h: Int, segments: Int): List<Strip> {
+        if (segments <= 1 || h < segments) return emptyList()
         val base = h / segments
         val rem = h % segments
-        for (i in 0 until segments) {
+        return List(segments) { i ->
             var dstY = base * i
             var rows = base
             val srcY = h - base * (i + 1) - rem
             if (i == 0) rows += rem else dstY += rem
-            System.arraycopy(pixels, srcY * w, out, dstY * w, rows * w)
+            Strip(srcY = srcY, dstY = dstY, rows = rows)
+        }
+    }
+
+    /**
+     * 还原：按 [restoreStrips] 的计划逐条搬运。
+     * 返回新数组；无需还原时原样返回 [pixels]。
+     */
+    fun restore(pixels: IntArray, w: Int, h: Int, segments: Int): IntArray {
+        if (segments <= 1 || w <= 0 || h < segments) return pixels
+        val strips = restoreStrips(h, segments)
+        val out = IntArray(pixels.size)
+        for (strip in strips) {
+            System.arraycopy(pixels, strip.srcY * w, out, strip.dstY * w, strip.rows * w)
         }
         return out
     }

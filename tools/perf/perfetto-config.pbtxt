@@ -1,0 +1,53 @@
+# Perfetto 配置：JM Reader 冷启动 + 首页 + 阅读器基线
+# 使用：
+#   adb shell perfetto -c - --txt -o /data/misc/perfetto-traces/jm.pftrace < tools/perf/perfetto-config.pbtxt
+#
+# 说明：atrace_apps 只抓本应用；sched/freq/idle 用于区分 CPU 调度与热降频。
+# 采集窗口 20s，覆盖冷启动到首页稳定；阅读器路径请在脚本外追加手势后另跑。
+
+buffers {
+  size_kb: 65536
+  fill_policy: RING_BUFFER
+}
+
+data_sources {
+  config {
+    name: "linux.ftrace"
+    target_buffer: 0
+    ftrace_config {
+      ftrace_events: "sched/sched_switch"
+      ftrace_events: "sched/sched_wakeup"
+      ftrace_events: "power/cpu_frequency"
+      ftrace_events: "power/cpu_idle"
+      ftrace_events: "power/suspend_resume"
+      ftrace_events: "task/task_newtask"
+      ftrace_events: "task/task_rename"
+      atrace_categories: "am"
+      atrace_categories: "wm"
+      atrace_categories: "gfx"
+      atrace_categories: "view"
+      atrace_categories: "input"
+      atrace_categories: "res"
+      atrace_categories: "dalvik"
+      atrace_categories: "bionic"
+      atrace_categories: "power"
+      atrace_apps: "com.jmread"
+      buffer_size_kb: 16384
+      drain_period_ms: 250
+    }
+  }
+}
+
+data_sources {
+  config {
+    name: "linux.process_stats"
+    target_buffer: 0
+    process_stats_config {
+      scan_all_processes_on_start: true
+      proc_stats_poll_ms: 1000
+    }
+  }
+}
+
+duration_ms: 20000
+flush_period_ms: 1000

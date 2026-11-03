@@ -1,6 +1,13 @@
 package com.jmread.data
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * 条漫长图的「单页切片记录」：切几屏 + 图片实测高宽比。
@@ -29,14 +36,69 @@ data class SliceInfo(
  *
  * 序列化格式：`页码:切片数[:高宽比]`，逗号分隔。第三段为 0.3.0 之后新增，
  * 旧数据只有两段，按「无比例」解析（等图片加载后补测）。
+ *
+ * PERF-08：测量回调此前在主线程逐页 `putAll`（merge + SP 序列化），快速滚动时
+ * 每屏一次。现在写入先进内存缓冲，由单写者 IO 协程合并约 400ms 的变化，
+ * 一章一次序列化；`flushNow()` 在切章/退出时按**旧章节身份**立即提交，
+ * 不会把旧结果写进新章。
  */
 object WebtoonSliceCache {
 
     private const val PREFS = "jm_webtoon_slices"
     private const val MAX_CHAPTERS = 512
 
+    /** 批量提交的去抖窗口 */
+    private const val FLUSH_DEBOUNCE_MS = 400L
+
     private val map = java.util.concurrent.ConcurrentHashMap<String, Map<Int, SliceInfo>>()
     @Volatile private var prefs: android.content.SharedPreferences? = null
+
+    // ---------- 单写者批量提交（PERF-08） ----------
+
+    private val flushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val flushRequests = MutableStateFlow(0L)
+    private val pending = java.util.concurrent.ConcurrentHashMap<Pair<String, Int>, MutableMap<Int, SliceInfo>>()
+    @Volatile private var appContext: Context? = null
+
+    /** 由 JmApp.onCreate 调用；未调用时批量写入静默失效（只丢缓存，可重建） */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    private val flusher = flushScope.launch {
+        flushRequests.collectLatest {
+            delay(FLUSH_DEBOUNCE_MS)
+            doFlush()
+        }
+    }
+
+    /** 合并一批测量结果（主线程调用只做内存合并，IO 由单写者完成） */
+    fun putBatched(ref: String, order: Int, infos: Map<Int, SliceInfo>) {
+        val useful = infos.filterValues { it.count > 1 }
+        if (useful.isEmpty()) return
+        val bucket = pending.getOrPut(ref to order) { java.util.concurrent.ConcurrentHashMap() }
+        bucket.putAll(useful)
+        flushRequests.value = flushRequests.value + 1
+    }
+
+    /** 切章/退出阅读器时立即提交（按 pending 里记录的旧章节身份，不受当前章影响） */
+    fun flushNow() {
+        if (pending.isEmpty()) return
+        flushScope.launch { doFlush() }
+    }
+
+    private suspend fun doFlush() {
+        val context = appContext ?: return
+        if (pending.isEmpty()) return
+        val snapshot = HashMap(pending)
+        pending.clear()
+        for ((identity, infos) in snapshot) {
+            val (ref, order) = identity
+            putAll(context, ref, order, infos)
+        }
+    }
+
+    // ---------- 存取 ----------
 
     private fun sp(context: Context): android.content.SharedPreferences =
         prefs ?: context.applicationContext
@@ -92,6 +154,7 @@ object WebtoonSliceCache {
 
     /** 一键清空（设置页「清除缓存」）：内存表与 SP 全清。缓存可重建，无用户数据 */
     fun clear(context: Context) {
+        pending.clear()
         map.clear()
         runCatching { sp(context).edit().clear().apply() }
     }

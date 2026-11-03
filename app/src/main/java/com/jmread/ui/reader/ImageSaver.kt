@@ -51,14 +51,13 @@ object ImageSaver {
         }
         val cleanUrl = ImageScrambler.stripManualSuffix(imageUrl).substringBefore("#retry")
         val raw = fetchJmImageBytes(cleanUrl)
-        return withContext(Dispatchers.Default) {
-            ImageScrambler.processBytesIfNeeded(
-                cleanUrl,
-                raw,
-                force,
-                maxHeight = MemoryBudget.maxDecodeHeightPx(context),
-            )
-        }
+        // 还原/编码自带处理预算与受限 CPU 执行器，这里不再包一层 Dispatchers.Default
+        return ImageScrambler.processBytesIfNeeded(
+            cleanUrl,
+            raw,
+            force,
+            maxHeight = MemoryBudget.maxDecodeHeightPx(context),
+        )
     }
 
     /** 按文件魔数识别真实编码，扩展名/MIME 不依赖下载文件名。 */

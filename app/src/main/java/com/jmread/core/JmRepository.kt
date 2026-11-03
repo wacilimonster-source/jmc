@@ -3,6 +3,7 @@ package com.jmread.core
 import com.jmread.core.checkin.isSignedOn
 import com.jmread.core.library.LibraryRepository
 import com.jmread.core.log.LogStore
+import com.jmread.core.log.PerfTrace
 import com.jmread.core.model.BROWSE_HARD_CAP
 import com.jmread.core.model.ComicCategory
 import com.jmread.core.model.ComicChapter
@@ -26,9 +27,9 @@ import com.jmread.network.JmAlbumSummary
 import com.jmread.network.JmClient
 import com.jmread.network.JmCrypto
 import com.jmread.network.JmException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 唯一数据门面：DTO → 领域模型映射 + 分页判据 + 去重 + 短 TTL 缓存。
@@ -40,8 +41,97 @@ import java.util.concurrent.ConcurrentHashMap
 object JmRepository {
 
     // ---------- album 短 TTL 内存缓存（详情页会以同一 id 请求 2~3 次） ----------
-    private val albumCache = ConcurrentHashMap<String, Pair<Long, com.jmread.network.JmAlbumResponse>>()
+    /**
+     * PERF-04：同一 album 的并发首次请求必须合并成一次上游调用。
+     *
+     * 旧实现只有 TTL 缓存、没有在途合并：详情页首次加载时 `comicDetail` 与
+     * `chapters` 会同时未命中并各发一次 `/album`。现在：
+     *  - `key -> Deferred` 短锁维护，网络在锁外执行；
+     *  - 共享任务由应用级 scope 持有，首个订阅者取消不会打断其他订阅者；
+     *  - 最后一个订阅者取消才取消共享传输，避免无人消费仍占连接；
+     *  - 成功写缓存并删除表项，失败不缓存且表项必须清理；
+     *  - 容量上限 128（LRU），TTL 用单调时钟。
+     */
+    private val albumLock = Any()
+    private const val ALBUM_CACHE_MAX = 128
     private const val ALBUM_TTL_MS = 120_000L
+
+    private class AlbumFlight(
+        val deferred: kotlinx.coroutines.Deferred<com.jmread.network.JmAlbumResponse>,
+    ) {
+        var subscribers: Int = 1
+    }
+
+    private val albumFlights = HashMap<String, AlbumFlight>()
+
+    private val albumCache =
+        object : LinkedHashMap<String, Pair<Long, com.jmread.network.JmAlbumResponse>>(
+            16,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, Pair<Long, com.jmread.network.JmAlbumResponse>>,
+            ): Boolean = size > ALBUM_CACHE_MAX
+        }
+
+    /** 单调时钟：进程内 TTL 不受系统时间回拨影响 */
+    private fun monoNow(): Long = System.nanoTime() / 1_000_000L
+
+    /** 缓存身份含会话代际：登录/退出后旧权限数据不得复用 */
+    private fun albumCacheKey(albumId: String): String = "$sessionGeneration:$albumId"
+
+    internal fun clearAlbumCache() {
+        synchronized(albumLock) { albumCache.clear() }
+    }
+
+    /** 测试钩子：替换 /album 网络请求（默认走 JmClient） */
+    @Volatile
+    internal var albumFetcher: suspend (String) -> com.jmread.network.JmAlbumResponse =
+        { JmClient.album(it) }
+
+    internal suspend fun albumCached(albumId: String): com.jmread.network.JmAlbumResponse {
+        val key = albumCacheKey(albumId)
+        val now = monoNow()
+        synchronized(albumLock) {
+            albumCache[key]?.let { (at, resp) ->
+                if (now - at < ALBUM_TTL_MS) return resp
+            }
+        }
+        val flight = synchronized(albumLock) {
+            val existing = albumFlights[key]
+            if (existing != null) {
+                existing.subscribers++
+                existing
+            } else {
+                AlbumFlight(AppScope.IO.async { albumFetcher(albumId) })
+                    .also { albumFlights[key] = it }
+            }
+        }
+        return try {
+            val resp = PerfTrace.asyncSection("repo.album") { flight.deferred.await() }
+            synchronized(albumLock) {
+                albumCache[key] = monoNow() to resp
+                releaseFlightLocked(key, flight, cancelIfLast = false)
+            }
+            resp
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            synchronized(albumLock) { releaseFlightLocked(key, flight, cancelIfLast = true) }
+            throw e
+        } catch (e: Exception) {
+            // 失败不缓存；表项清理后下一次调用重新请求
+            synchronized(albumLock) { releaseFlightLocked(key, flight, cancelIfLast = false) }
+            throw e
+        }
+    }
+
+    private fun releaseFlightLocked(key: String, flight: AlbumFlight, cancelIfLast: Boolean) {
+        flight.subscribers--
+        if (flight.subscribers <= 0 && albumFlights[key] === flight) {
+            albumFlights.remove(key)
+            if (cancelIfLast) flight.deferred.cancel()
+        }
+    }
 
     /** 「新晋热榜」热度池页数（月榜前 2 页 = 160 条） */
     private const val NEW_ARRIVAL_POOL_PAGES = 2
@@ -88,17 +178,6 @@ object JmRepository {
         return true
     }
 
-    private suspend fun albumCached(albumId: String): com.jmread.network.JmAlbumResponse {
-        val now = System.currentTimeMillis()
-        albumCache[albumId]?.let { (at, resp) ->
-            if (now - at < ALBUM_TTL_MS) return resp
-        }
-        val resp = JmClient.album(albumId)
-        albumCache[albumId] = now to resp
-        albumCache.entries.removeIf { now - it.value.first >= ALBUM_TTL_MS }
-        return resp
-    }
-
     // ---------- 登录态 ----------
 
     val isLoggedIn: Boolean get() = SourcePrefs.current().isLoggedIn
@@ -121,6 +200,7 @@ object JmRepository {
                         SourcePrefs.current().setJmLogin(data.s, cred.first, data.uid)
                         favIdsCache = null
                         sessionGeneration++
+                        clearAlbumCache()
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -129,6 +209,7 @@ object JmRepository {
                             SourcePrefs.current().clearJmLogin()
                             favIdsCache = null
                             sessionGeneration++
+                            clearAlbumCache()
                             LibraryRepository.resetCloud()
                         } else {
                             LogStore.log(
@@ -160,6 +241,7 @@ object JmRepository {
         favIdsCache = null
         favouriteVersion++
         sessionGeneration++
+        clearAlbumCache()
         postLoginEvent = true
         LibraryRepository.resetCloud()
     }
@@ -170,6 +252,7 @@ object JmRepository {
         favIdsCache = null
         favouriteVersion++
         sessionGeneration++
+        clearAlbumCache()
         postLoginEvent = false
         LibraryRepository.resetCloud()
     }

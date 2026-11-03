@@ -8,6 +8,7 @@ import coil.request.ImageRequest
 import coil.size.Precision
 import com.jmread.core.MemoryBudget
 import com.jmread.core.log.LogStore
+import com.jmread.core.log.PerfTrace
 import com.jmread.core.model.ComicChapter
 import com.jmread.core.model.ComicPage
 import com.jmread.core.JmRepository
@@ -93,8 +94,27 @@ class ReaderViewModel : ViewModel() {
     /** 当前 pages 是否来自完整来源（完整离线章节或在线整章）；部分本地页不得据此判读完 */
     @Volatile private var pagesComplete = false
 
-    /** 预取请求句柄：翻页/切章时取消上一窗口，避免离开视口后仍占用带宽与解码 */
-    private val preloadDisposables = mutableListOf<coil.request.Disposable>()
+    /**
+     * 预取窗口（PERF-06）：pageIndex -> Disposable，差量维护。
+     *
+     * 旧实现每次页码变化先 dispose 全部旧窗口，再重新入队前后最多 5 页——
+     * 窗口交集也被取消重建，快速翻页时反复打断在途传输。
+     * 现在：
+     *  - 只 dispose 离开窗口的项，保留交集；
+     *  - 窗口 = 后退 1 页 + 前进最多 2 页（方向性：前进为主）；
+     *  - 快速 fling（250ms 内连续翻页）暂停新增预取，停止后由下一次调用重建；
+     *  - 章节身份 / 滚动模式变化 / 内存压力 → 整窗失效（解码尺寸与展示保持一致）；
+     *  - 预取请求带 `#prefetch` 标记走调度器低优先级，缓存身份与展示请求完全一致。
+     */
+    private val preloadWindow = LinkedHashMap<Int, coil.request.Disposable>()
+    private var preloadChapterKey = ""
+    private var preloadScrollMode: Boolean? = null
+    private var lastPreloadCallAt = 0L
+
+    private fun disposePreloadWindow() {
+        preloadWindow.values.forEach { runCatching { it.dispose() } }
+        preloadWindow.clear()
+    }
 
     /** 本作品加载时的修订号；写盘携带它，清除阅读记录后旧写入失效 */
     @Volatile private var revisionAtLoad: Long = 0L
@@ -142,6 +162,8 @@ class ReaderViewModel : ViewModel() {
         // 同步置 true：清空 pages 与协程启动之间不能闪一帧“加载失败”
         _loading.value = true
         loadJob = viewModelScope.launch {
+            // PERF-00：点击进入 → 本章 pages 可用的异步阶段
+            val pagesTrace = PerfTrace.beginAsync("reader.pagesReady")
             // 复位上一章未消费的恢复页：加载期间重组只会读到 -1，
             // 恢复 effect 不可能拿着上一章的 pages 抢跑消费
             _pendingRestorePage.value = -1
@@ -184,6 +206,11 @@ class ReaderViewModel : ViewModel() {
                     }
                     val localComplete = localPages.isNotEmpty() &&
                         com.jmread.core.download.DownloadManager.isDownloaded(comicId, order)
+                    if (localPages.isNotEmpty() && !localComplete) {
+                        // 打开时文件校验失败（外部删页/半章）：从内存索引摘除，
+                        // 结构流不再误报该章已下载（PERF-07 的完整性兜底）
+                        com.jmread.core.download.DownloadManager.invalidateDownloaded(comicId, order)
+                    }
                     if (gen != loadGeneration) return@withContext
                     if (localComplete) {
                         _pages.value = localPages
@@ -208,6 +235,7 @@ class ReaderViewModel : ViewModel() {
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
                     _pendingRestorePage.value = restoreSafe
+                    PerfTrace.endAsync(pagesTrace)
 
                     // 章节列表独立失败：离线/详情接口故障不应连累已经拿到的页面。
                     val remoteChapters = runCatchingCancellable { JmRepository.chapters(comicId) }
@@ -231,11 +259,11 @@ class ReaderViewModel : ViewModel() {
                         }
                     } else {
                         _chaptersResolved.value = false
+                        // PERF-07：离线兜底目录用内存索引，不再逐章 isDownloaded 扫目录
+                        val completed = com.jmread.core.download.DownloadManager
+                            .downloadedStructure.value[comicId] ?: emptySet()
                         _chapters.value = com.jmread.core.download.DownloadManager.comicTasks(comicId)
-                            .filter {
-                                com.jmread.core.download.DownloadManager
-                                    .isDownloaded(comicId, it.task.order)
-                            }
+                            .filter { it.task.order in completed || it.isFinished }
                             .map { t ->
                                 ComicChapter(
                                     id = "$comicId#${t.task.order}",
@@ -294,6 +322,7 @@ class ReaderViewModel : ViewModel() {
                     )
                 }
             } finally {
+                PerfTrace.endAsync(pagesTrace)
                 if (gen == loadGeneration && isActive) _loading.value = false
             }
         }
@@ -355,14 +384,17 @@ class ReaderViewModel : ViewModel() {
     private fun observeDownloaded(comicId: String) {
         downloadedJob?.cancel()
         downloadedJob = viewModelScope.launch(Dispatchers.IO) {
-            combine(_chapters, com.jmread.core.download.DownloadManager.tasks) { chs, _ -> chs }
-                .collectLatest { chs ->
-                    val set = chs.asSequence()
-                        .map { it.order }
-                        .filter { com.jmread.core.download.DownloadManager.isDownloaded(comicId, it) }
-                        .toSet()
-                    _downloadedOrders.value = set
-                }
+            // PERF-07：订阅结构流（入队/完成/删除/恢复才变化），不再订阅整个 tasks 流。
+            // 字节进度与速度更新不会触发这里，也就不会逐章 isDownloaded 扫目录。
+            combine(_chapters, com.jmread.core.download.DownloadManager.downloadedStructure) { chs, structure ->
+                chs to structure
+            }.collectLatest { (chs, structure) ->
+                val completed = structure[comicId] ?: emptySet()
+                _downloadedOrders.value = chs.asSequence()
+                    .map { it.order }
+                    .filter { it in completed }
+                    .toSet()
+            }
         }
     }
 
@@ -560,24 +592,49 @@ class ReaderViewModel : ViewModel() {
         scrollMode: Boolean,
         range: Int = 2,
     ) {
-        // 先取消上一窗口的预取（P2-08：离开当前页/章节后不再保留在途预取）
-        preloadDisposables.forEach { runCatching { it.dispose() } }
-        preloadDisposables.clear()
-        if (MemoryBudget.shouldDisablePrefetch()) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val flinging = lastPreloadCallAt > 0 && now - lastPreloadCallAt < FLING_PAUSE_MS
+        lastPreloadCallAt = now
+
+        val chapterKey = "$ref:$currentOrder"
+        val identityChanged = preloadChapterKey != chapterKey || preloadScrollMode != scrollMode
+        val pressure = MemoryBudget.shouldDisablePrefetch()
+        if (identityChanged || pressure) {
+            disposePreloadWindow()
+            preloadChapterKey = chapterKey
+            preloadScrollMode = scrollMode
+            if (pressure) return
+        }
+        // fling 中不动窗口：既不新增也不抖动式重建，停止后下一次调用收敛
+        if (flinging && !identityChanged) return
+
         val pages = _pages.value
         if (pages.isEmpty()) return
         val loader = Coil.imageLoader(context)
         val size = if (scrollMode) webtoonDecodeSize(context) else pagerDecodeSize(context)
-        for (i in (visiblePage - range)..(visiblePage + range)) {
-            if (i < 0 || i >= pages.size) continue
-            val url = pages[i].imageUrl
+        // 后退最多 1 页；前进最多 2 页（range 只能收紧，不能放开）
+        val forward = range.coerceIn(1, 2)
+        val windowStart = (visiblePage - 1).coerceAtLeast(0)
+        val windowEnd = (visiblePage + forward).coerceAtMost(pages.size - 1)
+        val desired = windowStart..windowEnd
+
+        // 只 dispose 离开窗口的项；交集保留，在途传输不被打断
+        for (page in preloadWindow.keys.toList()) {
+            if (page !in desired) {
+                preloadWindow.remove(page)?.let { runCatching { it.dispose() } }
+            }
+        }
+        for (page in desired) {
+            if (preloadWindow.containsKey(page)) continue
+            val url = pages.getOrNull(page)?.imageUrl ?: continue
             // 本地文件（已下载）无需预取
             if (url.startsWith("file:")) continue
-            // 与展示请求共用同一缓存身份（含自动/强制还原模式；重试次数不进入 key）
+            // 与展示请求共用同一缓存身份（含自动/强制还原模式；重试次数不进入 key）；
+            // #prefetch 只影响传输调度优先级，不进入缓存身份、不发给 CDN
             val cacheKey = com.jmread.core.scramble.jmImageCacheKey(url)
-            preloadDisposables += loader.enqueue(
+            preloadWindow[page] = loader.enqueue(
                 ImageRequest.Builder(context)
-                    .data(url)
+                    .data(com.jmread.core.scramble.jmPrefetchUrl(url))
                     .size(size)
                     // 显式 Size + AUTOMATIC 会把小图放大到目标尺寸；阅读器只缩不放
                     .precision(Precision.INEXACT)
@@ -591,8 +648,12 @@ class ReaderViewModel : ViewModel() {
 
     override fun onCleared() {
         // 退出阅读器后不再保留全尺寸图片下载/解码
-        preloadDisposables.forEach { runCatching { it.dispose() } }
-        preloadDisposables.clear()
+        disposePreloadWindow()
         super.onCleared()
+    }
+
+    private companion object {
+        /** 快速 fling 判定窗口：两次翻页回调间隔小于该值时暂停新增预取 */
+        const val FLING_PAUSE_MS = 250L
     }
 }

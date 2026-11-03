@@ -48,4 +48,28 @@ class JmImageCacheKeyTest {
         val cover = "https://img.example/media/albums/1.jpg"
         assertEquals(cover, jmImageCacheKey(cover))
     }
+
+    @Test
+    fun `预取标记不进入缓存身份`() {
+        assertEquals(jmImageCacheKey(photo), jmImageCacheKey(jmPrefetchUrl(photo)))
+        assertEquals(
+            jmImageCacheKey("$photo#m1"),
+            jmImageCacheKey(jmPrefetchUrl("$photo#m1")),
+        )
+    }
+
+    @Test
+    fun `预取 URL 保留手动后缀在最后`() {
+        assertEquals("$photo#prefetch", jmPrefetchUrl(photo))
+        assertEquals("$photo#prefetch#m1", jmPrefetchUrl("$photo#m1"))
+        assertEquals("$photo#prefetch#m0", jmPrefetchUrl("$photo#m0"))
+    }
+
+    @Test
+    fun `干净 URL 剥掉重试与预取标记`() {
+        assertEquals(photo, jmCleanUrl(photo))
+        assertEquals(photo, jmCleanUrl("$photo#retry3"))
+        assertEquals(photo, jmCleanUrl("$photo#prefetch"))
+        assertEquals(photo, jmCleanUrl("$photo#retry3#prefetch#m1"))
+    }
 }

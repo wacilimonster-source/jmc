@@ -24,22 +24,34 @@ import kotlin.coroutines.coroutineContext
  * 响应体流中途断裂、解码失败等。这些失败对 OkHttp 拦截器不可见，表现却正是
  * 「页面加载失败，手点重试立刻好」。
  *
- * 只重试 IOException 与瞬时 HTTP 错误；404 等确定性失败直接交还。第 2 次起
- * 禁用磁盘缓存读，绕过可能被半截响应污染的条目；成功仍写回。
+ * PERF-03：不再拥有独立的「初始 + 3 次」预算。禁漫图片的重试次数与 deadline
+ * 由 [ImageRetryLedger] 中同一份 [ImageRetryBudget] 决定（换 CDN、管线 fresh fetch
+ * 都计入），这里只负责在预算尚存时做可取消退避；非禁漫 URL（头像/外链）保持
+ * 原有的独立重试语义。
  */
 class CoilRetryInterceptor : Interceptor {
 
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
+        val data = request.data.toString()
+        val jmKey = if (isJmImageUrl(data)) jmImageCacheKey(data) else null
         var attempt = 0
         var held = false
         try {
             while (true) {
                 val result = chain.proceed(requestOf(request, attempt))
                 val error = (result as? ErrorResult)?.throwable
-                val retryable = error != null && error.isTransient() && attempt < MAX_RETRIES
+                if (error == null) return result
+                val transient = error.isTransient()
+                val budget = jmKey?.let { ImageRetryLedger.existingBudget(it) }
+                val withinBudget = if (jmKey == null) {
+                    true
+                } else {
+                    budget != null && !budget.expired() && budget.remainingTransports() > 0
+                }
+                val retryable = transient && attempt < MAX_RETRIES && withinBudget
                 if (!retryable) {
-                    if (error != null && attempt >= MAX_RETRIES) logGiveUp(error, request)
+                    if (transient && attempt > 0) logGiveUp(error, request)
                     return result
                 }
                 if (!held && !slots.tryAcquire()) {
@@ -52,7 +64,16 @@ class CoilRetryInterceptor : Interceptor {
                 }
                 held = true
                 logRetry(attempt, error, request)
-                delay(BACKOFF_MS[attempt])
+                val wait = if (jmKey == null) {
+                    BACKOFF_MS[attempt]
+                } else {
+                    minOf(BACKOFF_MS[attempt], budget?.remainingMs() ?: 0L)
+                }
+                if (wait <= 0L) {
+                    logGiveUp(error, request)
+                    return result
+                }
+                delay(wait)
                 attempt++
             }
         } finally {
@@ -68,6 +89,8 @@ class CoilRetryInterceptor : Interceptor {
         }
 
     private fun Throwable.isTransient(): Boolean {
+        // 确定性 404 不重试；其它 HTTP 失败按瞬时处理
+        if (this is ImageHttpException) return code != 404
         if (this is IOException) return true
         if (this !is HttpException) return false
         val code = response.code
@@ -97,7 +120,8 @@ class CoilRetryInterceptor : Interceptor {
     private companion object {
         const val TAG = "JmImgPipeRetry"
         const val MAX_RETRIES = 3
-        const val FRESH_ATTEMPT = 2
+        /** 第一次重试就绕过磁盘缓存：坏缓存最多作一次失效重拉 */
+        const val FRESH_ATTEMPT = 1
         val BACKOFF_MS = longArrayOf(500L, 1_500L, 3_000L)
         const val MAX_CONCURRENT = 12
         val slots = Semaphore(MAX_CONCURRENT)

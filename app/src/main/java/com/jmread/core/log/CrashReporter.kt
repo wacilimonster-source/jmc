@@ -82,23 +82,42 @@ object CrashReporter {
     @Volatile
     private var appContext: Context? = null
 
-    /** 在 Application.onCreate 最先调用。先汇总上次会话的诊断证据，再装崩溃钩子。 */
+    /**
+     * 在 Application.onCreate 最先调用（PERF-09）。
+     *
+     * 拆成两步：
+     *  1. **立即装崩溃钩子** —— 首帧前的崩溃也必须落到 last_crash.txt，绝不能因为
+     *     历史证据汇总的文件 IO 把钩子装配延后；
+     *  2. **后台汇总上次会话证据** —— ApplicationExitInfo / 心跳 / 冻结栈 / 图片失败
+     *     全是文件 IO，移出主线程。汇总与新会话写入用「快照一致才清空」，
+     *     不会把新产生的诊断当成旧证据清掉。
+     */
     fun install(context: Context) {
         if (installed) return
         installed = true
-        appContext = context.applicationContext
-        prepareStartupDiagnostics(context)
-        if (pendingReport(context) != null) {
-            LogStore.log(TAG, "E", "检测到上次会话异常证据（崩溃/退出原因/冻结记录），设置 → 调试日志 顶部可查看或复制")
-        }
+        val app = context.applicationContext
+        appContext = app
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                writeReport(context.applicationContext, thread, throwable)
+                writeReport(app, thread, throwable)
             } catch (t: Throwable) {
                 // 崩溃处理链绝不能再抛
             } finally {
                 previous?.uncaughtException(thread, throwable)
+            }
+        }
+        thread(name = "jm-crash-evidence", isDaemon = true) {
+            try {
+                prepareStartupDiagnostics(app)
+                if (pendingReport(app) != null) {
+                    LogStore.log(
+                        TAG, "E",
+                        "检测到上次会话异常证据（崩溃/退出原因/冻结记录），设置 → 调试日志 顶部可查看或复制",
+                    )
+                }
+            } catch (t: Throwable) {
+                // 诊断失败不致命
             }
         }
     }
@@ -178,12 +197,14 @@ object CrashReporter {
                 }
             }
 
-            // 3) 上次会话的看门狗冻结记录（主线程阻塞栈，落盘过才能活过 ANR）
+            // 3) 上次会话的看门狗冻结记录（主线程阻塞栈，落盘过才能活过 ANR）。
+            // 后台汇总期间新会话可能正在写同一段证据：先快照，内容未变才清空；
+            // 变了就留给下一次启动汇总，绝不丢新证据。
             val freeze = readText(context, FREEZE_FILE)
             if (!freeze.isNullOrBlank()) {
                 sections += "--- 上次会话主线程冻结记录（≥4s 阻塞，看门狗落盘） ---\n$freeze"
             }
-            writeText(context, FREEZE_FILE, "") // 已消费，防跨会话累积
+            consumeIfUnchanged(context, FREEZE_FILE, freeze)
 
             // 4) 上次会话的图片最终失败记录（自动重试耗尽/受限）。
             // LogStore 是内存态，进程死亡即丢；落盘后才能进入下次启动诊断。
@@ -191,7 +212,7 @@ object CrashReporter {
             if (!imgFail.isNullOrBlank()) {
                 sections += "--- 上次会话图片加载失败记录（自动重试耗尽/受限） ---\n$imgFail"
             }
-            writeText(context, IMG_FAIL_FILE, "")
+            consumeIfUnchanged(context, IMG_FAIL_FILE, imgFail)
 
             if (sections.isNotEmpty()) {
                 // 带生成时间戳：报告在用户点「忽略」前会一直显示，
@@ -324,6 +345,16 @@ object CrashReporter {
 
     private fun writeText(context: Context, name: String, text: String) {
         runCatching { file(context, name).writeText(text) }
+    }
+
+    /**
+     * 消费型清空：只有文件内容与快照一致（期间没有新写入）才清空。
+     * 后台汇总与前台/看门狗写入并发时不丢新证据，最多延迟到下一次启动再汇总。
+     */
+    private fun consumeIfUnchanged(context: Context, name: String, captured: String?) {
+        if (readText(context, name) == captured) {
+            writeText(context, name, "")
+        }
     }
 }
 
