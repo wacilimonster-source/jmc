@@ -26,8 +26,13 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -68,8 +73,8 @@ import kotlinx.coroutines.delay
 /**
  * 首页 = 三 Tab（关注 / 排行榜 / 随便看看）。
  *
- * 阶段 B：排行榜只保留榜单档位本体；运营分区 / 每周必看归入「发现」Tab，
- * 首页保留「精选分区 ›」短入口。
+ * 顶栏挂「推荐本本 / 每周必看」两个精选入口（原发现页「精选内容」区）；
+ * 发现页承载官方标签与运营频道。
  * 关注流是首屏 Tab，支持分页与新内容基线；
  * 随便看看因源无 /random，使用月榜热池本地随机，不伪装成服务端随机。
  */
@@ -77,7 +82,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     onComicClick: (String) -> Unit = {},
-    onOpenDiscover: () -> Unit = {},
+    onOpenPromote: () -> Unit = {},
+    onOpenWeekly: () -> Unit = {},
     onOpenFollowManage: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
     followViewModel: FollowFeedViewModel = viewModel(),
@@ -227,6 +233,26 @@ fun HomeScreen(
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
+                // ── 精选入口：推荐本本 / 每周必看（原发现页「精选内容」区上移）──
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    HomeEntryCard(
+                        title = "推荐本本",
+                        subtitle = "按来源编排的精选内容",
+                        onClick = onOpenPromote,
+                        modifier = Modifier.weight(1f),
+                    )
+                    HomeEntryCard(
+                        title = "每周必看",
+                        subtitle = "选择期数，查看当期作品",
+                        onClick = onOpenWeekly,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 // 更新横幅：点主体打开对话框，「稍后再说」只静默当前版本
                 if (updateInfo != null) {
                     Row(
@@ -324,7 +350,6 @@ fun HomeScreen(
                         rankRefreshTick = rankRefreshTick,
                         onTypeChange = { viewModel.loadRank(it) },
                         onRefreshRank = { viewModel.loadRank(rankType, force = true) },
-                        onOpenDiscover = onOpenDiscover,
                         onComicClick = onComicClick,
                         gridState = rankGridState,
                     )
@@ -453,7 +478,6 @@ private fun RankTab(
     rankRefreshTick: Int,
     onTypeChange: (String) -> Unit,
     onRefreshRank: () -> Unit,
-    onOpenDiscover: () -> Unit,
     onComicClick: (String) -> Unit,
     gridState: LazyGridState,
 ) {
@@ -509,21 +533,7 @@ private fun RankTab(
                 }
             }
 
-            // ── 精选分区短入口：运营 block 与每周必看已归入发现（阶段 B）──
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 4.dp, top = 2.dp),
-            ) {
-                Text(
-                    text = "发现值得一读的作品",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onOpenDiscover) { Text("精选分区 ›") }
-            }
+            // ── 精选入口已上移首页顶栏，榜单区不再挂「精选分区 ›」短入口 ──
 
             val count = if (comics.isNotEmpty() && total > 0 && total != BROWSE_TOTAL_SENTINEL) total else null
             if (count != null && count > 0) {
@@ -616,6 +626,43 @@ private fun RankSkeletonCell() {
                 com.jmread.ui.browse.ComicGridSpec.CoverShape,
             ),
     )
+}
+
+/** 首页顶栏精选入口卡：推荐本本 / 每周必看，样式与发现页菜单卡同族 */
+@Composable
+private fun HomeEntryCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

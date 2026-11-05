@@ -131,9 +131,11 @@ fun MainScreen() {
     Scaffold(
         snackbarHost = { SnackbarHost(AppSnackbar.hostState) },
         bottomBar = {
-            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把这 64dp 还给内容区
+            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把标签栏高度还给内容区
+            // 标签栏保持 M3 默认 80dp：选中态是「指示胶囊 + 图标 + 文字」三段堆叠，
+            // 压到 64dp 时选中项文字会被裁掉（底部标签显示不全的根因）
             if (!hideBottomBar) {
-                NavigationBar(modifier = Modifier.height(64.dp)) {
+                NavigationBar {
                     tabs.forEach { tab ->
                         val selected = selectedTabRoute == tab.route
                         NavigationBarItem(
@@ -195,7 +197,8 @@ fun MainScreen() {
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
-                    onOpenDiscover = { navController.navigate("discover") },
+                    onOpenPromote = { navController.navigate("promote") },
+                    onOpenWeekly = { navController.navigate("weekly") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
                 )
             }
@@ -239,16 +242,12 @@ fun MainScreen() {
                 )
             }
             composable("discover") {
-                // 阶段 B：发现中心——分类/官方标签/推荐/每周必看/运营频道的共同入口
+                // 发现中心：官方标签（全量展开置顶）与运营频道入口；
+                // 推荐本本/每周必看入口在首页顶栏，按分类找作品已移除
                 com.jmread.ui.discover.DiscoverScreen(
-                    onCategoryClick = { id ->
-                        navController.navigate("category/${Uri.encode(id)}")
-                    },
                     onTagClick = { tag ->
                         navController.navigate("tag/${Uri.encode(tag)}")
                     },
-                    onOpenPromote = { navController.navigate("promote") },
-                    onOpenWeekly = { navController.navigate("weekly") },
                     onOpenChannel = { channelId ->
                         navController.navigate("channel/${Uri.encode(channelId)}")
                     },
