@@ -138,83 +138,7 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // ── 网络 ────────────────────────────────────────────────
-            var manualHost by remember { mutableStateOf(SourcePrefs.current().jmBaseUrl.orEmpty()) }
-            var currentHost by remember { mutableStateOf(DomainPool.currentApiHost) }
-            SettingsGroup(
-                header = "网络",
-                supporting = "默认自动选择线路：内置镜像 + 服务端下发，失败自动切换",
-            ) {
-                ListItem(
-                    headlineContent = { Text("当前生效域名") },
-                    supportingContent = { Text(if (manualHost.isBlank()) "$currentHost（自动）" else "$currentHost（手动）") },
-                )
-                SettingsRowDivider()
-                ListItem(
-                    headlineContent = { Text("手动指定 API 域名") },
-                    supportingContent = { Text("留空保持自动；换线路失败时可手动填写镜像域名") },
-                    trailingContent = {
-                        TextButton(onClick = {
-                            scope.launch {
-                                SourcePrefs.current().setJmBaseUrl(manualHost.takeIf { it.isNotBlank() })
-                                currentHost = DomainPool.currentApiHost
-                            }
-                        }) { Text("保存") }
-                    },
-                )
-                OutlinedTextField(
-                    value = manualHost,
-                    onValueChange = { manualHost = it },
-                    singleLine = true,
-                    placeholder = { Text("例如 www.cdngwc.cc（留空=自动）") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                )
-                SettingsRowDivider()
-                ListItem(
-                    headlineContent = { Text("图片乱序还原统计") },
-                    supportingContent = { Text(ScrambleCache.statsText()) },
-                )
-                // BC TLS 是绕开 Cloudflare 指纹拦截的唯一依赖：安装失败必须让用户/排障可见
-                BcTls.lastError?.let { err ->
-                    SettingsRowDivider()
-                    ListItem(
-                        headlineContent = { Text("TLS 协议栈异常") },
-                        supportingContent = { Text(err) },
-                    )
-                }
-            }
-
-            // ── 浏览 ────────────────────────────────────────────────
-            SettingsGroup(header = "浏览") {
-                Column {
-                    ListItem(
-                        headlineContent = { Text("作品列表每行数量") },
-                        supportingContent = {
-                            Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效")
-                        },
-                    )
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    ) {
-                        SegmentedButton(
-                            selected = gridColumns == 2,
-                            onClick = { GridSettings.setColumns(2) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        ) { Text("2 个") }
-                        SegmentedButton(
-                            selected = gridColumns == 3,
-                            onClick = { GridSettings.setColumns(3) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        ) { Text("3 个") }
-                    }
-                }
-            }
-
-            // ── 阅读 ────────────────────────────────────────────────
+            // ── 阅读（I10：高频偏好前置）────────────────────────────
             SettingsGroup(header = "阅读") {
                 Column {
                     ListItem(
@@ -286,6 +210,34 @@ fun SettingsScreen(
                 )
             }
 
+            // ── 浏览 ────────────────────────────────────────────────
+            SettingsGroup(header = "浏览") {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("作品列表每行数量") },
+                        supportingContent = {
+                            Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效")
+                        },
+                    )
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    ) {
+                        SegmentedButton(
+                            selected = gridColumns == 2,
+                            onClick = { GridSettings.setColumns(2) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        ) { Text("2 个") }
+                        SegmentedButton(
+                            selected = gridColumns == 3,
+                            onClick = { GridSettings.setColumns(3) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        ) { Text("3 个") }
+                    }
+                }
+            }
+
             // ── 下载 ────────────────────────────────────────────────
             SettingsGroup(header = "下载", supporting = "完成提醒与移动网络限制") {
                 ListItem(
@@ -330,18 +282,14 @@ fun SettingsScreen(
                 LibrarySyncSection()
             }
 
+            // ── 连接与诊断（I10：排障信息折叠；TLS 等阻断故障仍显著）──
+            ConnectionDiagnosticsSection(onOpenLog = onOpenLog)
+
             // ── 通用 ────────────────────────────────────────────────
             SettingsGroup(header = "通用") {
                 UpdateSection()
                 SettingsRowDivider()
                 CacheCleanSection()
-                SettingsRowDivider()
-                ListItem(
-                    headlineContent = { Text("调试日志") },
-                    supportingContent = { Text("查看应用运行日志与上次会话异常取证") },
-                    trailingContent = { ChevronIcon() },
-                    modifier = Modifier.clickable(onClick = onOpenLog),
-                )
                 SettingsRowDivider()
                 ListItem(
                     headlineContent = { Text("关于 JM Reader") },
@@ -355,6 +303,81 @@ fun SettingsScreen(
 
     if (showAbout) {
         AboutDialog(onDismiss = { showAbout = false })
+    }
+}
+
+/**
+ * 连接与诊断组（I10）：默认只显示「自动选择线路」一行；
+ * 手填域名与图片还原统计收进「高级」展开区，调试日志二级页保留。
+ * TLS 等阻断性故障永远显著提示，不折叠。
+ */
+@Composable
+private fun ConnectionDiagnosticsSection(onOpenLog: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var manualHost by remember { mutableStateOf(SourcePrefs.current().jmBaseUrl.orEmpty()) }
+    var currentHost by remember { mutableStateOf(DomainPool.currentApiHost) }
+    var advanced by remember { mutableStateOf(false) }
+
+    SettingsGroup(
+        header = "连接与诊断",
+        supporting = if (manualHost.isBlank()) {
+            "自动选择线路：内置镜像 + 服务端下发，失败自动切换"
+        } else {
+            "手动指定线路：${DomainPool.currentApiHost}"
+        },
+    ) {
+        // 阻断性故障不折叠：TLS 协议栈是图片/接口可用的前提
+        BcTls.lastError?.let { err ->
+            ListItem(
+                headlineContent = { Text("TLS 协议栈异常", color = MaterialTheme.colorScheme.error) },
+                supportingContent = { Text(err, color = MaterialTheme.colorScheme.error) },
+            )
+            SettingsRowDivider()
+        }
+        ListItem(
+            headlineContent = { Text("当前生效域名") },
+            supportingContent = { Text(if (manualHost.isBlank()) "$currentHost（自动）" else "$currentHost（手动）") },
+            trailingContent = {
+                TextButton(onClick = { advanced = !advanced }) {
+                    Text(if (advanced) "收起高级" else "高级")
+                }
+            },
+        )
+        if (advanced) {
+            ListItem(
+                headlineContent = { Text("手动指定 API 域名") },
+                supportingContent = { Text("留空保持自动；换线路失败时可手动填写镜像域名") },
+                trailingContent = {
+                    TextButton(onClick = {
+                        scope.launch {
+                            SourcePrefs.current().setJmBaseUrl(manualHost.takeIf { it.isNotBlank() })
+                            currentHost = DomainPool.currentApiHost
+                        }
+                    }) { Text("保存") }
+                },
+            )
+            OutlinedTextField(
+                value = manualHost,
+                onValueChange = { manualHost = it },
+                singleLine = true,
+                placeholder = { Text("例如 www.cdngwc.cc（留空=自动）") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            )
+            SettingsRowDivider()
+            ListItem(
+                headlineContent = { Text("图片乱序还原统计") },
+                supportingContent = { Text(ScrambleCache.statsText()) },
+            )
+            SettingsRowDivider()
+            ListItem(
+                headlineContent = { Text("调试日志") },
+                supportingContent = { Text("查看应用运行日志与上次会话异常取证") },
+                trailingContent = { ChevronIcon() },
+                modifier = Modifier.clickable(onClick = onOpenLog),
+            )
+        }
     }
 }
 

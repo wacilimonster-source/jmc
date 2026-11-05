@@ -70,6 +70,9 @@ fun CategoryScreen(
     viewModel: BrowseViewModel = viewModel(),
 ) {
     val categories by viewModel.categories.collectAsState()
+    val categoriesLoading by viewModel.categoriesLoading.collectAsState()
+    val categoriesError by viewModel.categoriesError.collectAsState()
+    val categoriesReady by viewModel.categoriesReady.collectAsState()
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
     var categorySettings by remember { mutableStateOf(CategorySettings.get()) }
     var showSettings by remember { mutableStateOf(false) }
@@ -140,41 +143,78 @@ fun CategoryScreen(
                     "${topLevelCategories.size} 个顶级分类 · $dedupedSubCount 个子分类"
                 },
             )
-            if (topLevelCategories.isEmpty()) {
-                CategoryHint(if (categories.isEmpty()) "分类加载中…" else "暂无分类")
-            } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+            when {
+                // I05：错误与「加载中」「暂无分类」分开——断网首进不再长期像加载中
+                categoriesError != null && topLevelCategories.isEmpty() -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 6.dp),
                 ) {
-                    topLevelCategories.forEach { category ->
-                        FilterChip(
-                            selected = category.id == selectedCategory?.id,
-                            onClick = { selectedCategoryId = category.id },
-                            label = { Text(category.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        )
-                    }
+                    Text(
+                        text = categoriesError ?: "分类加载失败",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "重试",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable { viewModel.loadCategories() }
+                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
                 }
 
-                selectedCategory?.let { category ->
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(
+                topLevelCategories.isEmpty() && categoriesLoading -> CategoryHint("分类加载中…")
+
+                topLevelCategories.isEmpty() && categoriesReady -> CategoryHint("暂无分类")
+
+                else -> {
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        item {
+                        topLevelCategories.forEach { category ->
                             FilterChip(
-                                selected = false,
-                                onClick = { onCategoryClick(category.id) },
-                                label = { Text("全部") },
+                                selected = category.id == selectedCategory?.id,
+                                onClick = { selectedCategoryId = category.id },
+                                label = { Text(category.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             )
                         }
-                        items(selectedSubCategories, key = { "${category.id}|${it.slug}" }) { sub ->
-                            FilterChip(
-                                selected = false,
-                                onClick = { onSubcategoryClick(category.id, sub.name) },
-                                label = { Text(sub.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    }
+
+                    // I08：选中大类后给出独立区块标题与「查看全部」——
+                    // 大类 chip 只切换子类列表，进入作品流走「查看全部」或具体子类
+                    selectedCategory?.let { category ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                        ) {
+                            Text(
+                                text = category.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
                             )
+                            Text(
+                                text = "查看全部",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clickable { onCategoryClick(category.id) }
+                                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                            )
+                        }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp),
+                        ) {
+                            items(selectedSubCategories, key = { "${category.id}|${it.slug}" }) { sub ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onSubcategoryClick(category.id, sub.name) },
+                                    label = { Text(sub.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                )
+                            }
                         }
                     }
                 }
@@ -288,13 +328,21 @@ fun CategoryComicsScreen(
             reloadKey = reloadKey,
         )
     }
-    // 筛选模式需要把后续服务端页全部拉齐，否则只能过滤已加载的 20/40 条。
-    // 失败后暂停自动补页，等用户点“重试”，避免失败页被无限重拉。
-    LaunchedEffect(readFilter, comics, loading, endReached, error) {
+    // I04（阶段 B）：本地筛选先过滤已加载集合再分页；
+    // 当前页不满且未到末尾时按需补页，失败停止自动拉取等显式重试。
+    val matchedCount = remember(readFilter, comics) { comics.filterByRead(readFilter).size }
+    LaunchedEffect(readFilter, comics, loading, endReached, error, filterPage) {
         if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && !loading && !endReached &&
-            error == null && comics.isNotEmpty()
+            error == null && matchedCount < filterPage * com.jmread.ui.browse.FILTER_PAGE_SIZE
         ) {
             viewModel.loadMore()
+        }
+    }
+    // 数据收缩后页码越界收敛
+    val matchedPages = com.jmread.ui.browse.filteredPageCount(matchedCount)
+    LaunchedEffect(matchedPages, readFilter) {
+        if (readFilter != com.jmread.ui.browse.ReadFilter.ALL && filterPage > matchedPages) {
+            filterPage = matchedPages
         }
     }
     LaunchedEffect(currentSub) {
@@ -388,22 +436,18 @@ fun CategoryComicsScreen(
                 }
             }
 
+            // I04（阶段 B）：先过滤已加载集合再切片
             val displayComics = remember(readFilter, comics, filterPage) {
-                if (readFilter == com.jmread.ui.browse.ReadFilter.ALL) {
-                    comics
-                } else {
-                    comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
-                }
+                com.jmread.ui.browse.filterThenPage(comics, readFilter, filterPage)
             }
-            // 筛选页码按已加载结果的 20 条切片计算，不能沿用服务端 80 条/页的 totalPages
-            val filterPageCount = ((comics.size + 19) / 20).coerceAtLeast(1)
+            // 筛选页码按「过滤后的已加载结果」计算，不能沿用服务端 80 条/页的 totalPages
             val barTotalPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
-                filterPageCount
+                matchedPages
             } else {
                 totalPages
             }
             val barLoadedPages = if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
-                filterPageCount
+                matchedPages
             } else {
                 (comics.size + 19) / 20
             }
@@ -450,15 +494,44 @@ fun CategoryComicsScreen(
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = when {
-                            readFilter != com.jmread.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
-                            currentSub.isNotBlank() -> "「$currentSub」暂无匹配作品"
-                            else -> "该分类下暂无符合条件的漫画"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = when {
+                                readFilter != com.jmread.ui.browse.ReadFilter.ALL && matchedCount == 0 ->
+                                    "已加载 ${comics.size} 部，没有匹配的作品"
+                                readFilter != com.jmread.ui.browse.ReadFilter.ALL ->
+                                    "当前页没有更多匹配"
+                                currentSub.isNotBlank() -> "「$currentSub」暂无匹配作品"
+                                else -> "该分类下暂无符合条件的漫画"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (readFilter != com.jmread.ui.browse.ReadFilter.ALL) {
+                            if (!endReached) {
+                                Text(
+                                    text = "继续查找",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .clickable { viewModel.loadMore() },
+                                )
+                            }
+                            Text(
+                                text = "清除条件",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .clickable {
+                                        readFilterName = com.jmread.ui.browse.ReadFilter.ALL.name
+                                        filterPage = 1
+                                        listState.requestScrollToItem(0)
+                                    },
+                            )
+                        }
+                    }
                 }
                 if (barTotalPages > 1) {
                     PaginationBar(

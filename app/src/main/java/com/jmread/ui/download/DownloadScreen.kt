@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
@@ -216,8 +215,9 @@ fun DownloadScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
             ) {
                 Row(
@@ -402,6 +402,7 @@ private fun ComicGroupCard(
     val bytes = tasks.sumOf { it.totalBytes }
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Row(
@@ -417,7 +418,7 @@ private fun ComicGroupCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(56.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .clip(RoundedCornerShape(10.dp)),
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -445,24 +446,7 @@ private fun ComicGroupCard(
                         .height(4.dp),
                 )
             }
-            IconButton(onClick = onExport, enabled = exportEnabled && done > 0) {
-                Icon(
-                    Icons.Filled.FileUpload,
-                    contentDescription = "导出已完成章节",
-                    tint = if (done > 0) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            IconButton(onClick = onDeleteAll, enabled = deleteEnabled) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除整本",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            // 展开/收起仅留一枚图标；导出与删除降为次级操作（展开区底部）
             IconButton(onClick = onToggle) {
                 Icon(
                     imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
@@ -482,6 +466,34 @@ private fun ComicGroupCard(
                         onDelete = { onDelete(runtime.key) },
                         deleteEnabled = deleteEnabled,
                     )
+                }
+                // 次级操作行：导出/删除不与进度争视觉焦点；禁用条件与原实现一致
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    TextButton(onClick = onExport, enabled = exportEnabled && done > 0) {
+                        Text(
+                            "导出 ZIP",
+                            color = if (exportEnabled && done > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDeleteAll, enabled = deleteEnabled) {
+                        Text(
+                            "删除整本",
+                            color = if (deleteEnabled) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                        )
+                    }
                 }
             }
         }

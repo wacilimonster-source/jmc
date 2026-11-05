@@ -278,12 +278,11 @@ class HomeViewModel : ViewModel() {
 
     /**
      * 首屏榜单已可见后再加载次级内容（PERF-05）：
-     * 档位能力探测会额外打 3 个请求，分区/每周必看又各打 1~2 个，
-     * 与首屏榜单同帧启动会直接争抢带宽与图片预算。
+     * 档位能力探测会额外打 3 个请求，与首屏榜单同帧启动会直接争抢带宽与图片预算。
+     * 阶段 B 后运营分区 / 每周必看由「发现」Tab 自行加载，首页不再预取。
      */
     fun onRankContentVisible() {
         ensureRankTabs()
-        ensureSectionsLoaded()
     }
 
     /** 排行榜请求代际：快速切榜时旧响应不得覆盖新选择 */

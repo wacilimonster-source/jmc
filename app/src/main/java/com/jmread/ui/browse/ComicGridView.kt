@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -26,9 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,12 +40,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.jmread.core.model.ComicSummary
+
+/** 系列网格规格：横向间距 12dp、纵向 20dp；封面 3:4、10dp 圆角 */
+object ComicGridSpec {
+    val CoverShape = RoundedCornerShape(10.dp)
+    const val H_GAP_DP = 12
+    const val V_GAP_DP = 20
+}
+
+/** 系列卡片标题字阶：两列 14/20/600，三列 12/18/600；最多两行由调用处控制 */
+private fun cardTitleStyle(large: Boolean) = if (large) {
+    TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+} else {
+    TextStyle(fontSize = 12.sp, lineHeight = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+}
 
 /** 漫画网格：每行数量随设置（2/3，默认 2）+ 触底自动加载更多 */
 @OptIn(ExperimentalFoundationApi::class)
@@ -73,6 +93,8 @@ fun ComicGridView(
     /** 可选收藏心形（书架卡片）：返回当前收藏态；null 不显示。点击回调 onFavouriteToggle */
     collectedOf: ((String) -> Boolean?)? = null,
     onFavouriteToggle: ((String) -> Unit)? = null,
+    /** 可选「更多」入口（书架卡片）：呈现与长按相同的操作菜单（I07：打开详情始终可达） */
+    onMoreClick: ((String) -> Unit)? = null,
 ) {
     val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
     val columns by com.jmread.data.GridSettings.columnsFlow.collectAsState()
@@ -80,9 +102,9 @@ fun ComicGridView(
         columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(ComicGridSpec.H_GAP_DP.dp),
+        verticalArrangement = Arrangement.spacedBy(ComicGridSpec.V_GAP_DP.dp),
     ) {
         items(comics, key = { it.ref }) { comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.jmread.data.ReaderStatus.of(comic.ref) }
@@ -103,6 +125,7 @@ fun ComicGridView(
                     statusLine = statusLine,
                     collected = collected,
                     onFavouriteToggle = onFavouriteToggle,
+                    onMoreClick = onMoreClick,
                     onClick = { onComicClick(comic.ref) },
                     onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
                 )
@@ -116,7 +139,6 @@ fun ComicGridView(
             }
         }
         // 终态页脚：分页流到头（endReached）且确有内容时显示，跨全部列
-        // （产品设计 §5.1/§8：第 125 页出现「到底了」——停止机制早已在，这里是可见文案）
         if (!loading && endReached && comics.isNotEmpty()) {
             item(key = "end-reached", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
@@ -180,6 +202,8 @@ private fun ComicCard(
     /** 收藏态（书架用）：非 null 时显示可点心形 */
     collected: Boolean? = null,
     onFavouriteToggle: ((String) -> Unit)? = null,
+    /** 「更多」入口（书架用）：与长按菜单同能力 */
+    onMoreClick: ((String) -> Unit)? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -198,14 +222,16 @@ private fun ComicCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant, ComicGridSpec.CoverShape),
         ) {
             comic.coverUrl?.let { cover ->
                 AsyncImage(
                     model = cover,
                     contentDescription = comic.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(ComicGridSpec.CoverShape),
                 )
             }
             if (comic.coverUrl.isNullOrBlank()) {
@@ -255,14 +281,10 @@ private fun ComicCard(
         }
         Text(
             text = comic.title,
-            style = if (largeTitle) {
-                MaterialTheme.typography.bodyMedium
-            } else {
-                MaterialTheme.typography.bodySmall
-            },
+            style = cardTitleStyle(largeTitle),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 8.dp),
         )
         if (comic.author.isNotBlank()) {
             Text(
@@ -273,7 +295,7 @@ private fun ComicCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (statusLine != null || collected != null) {
+        if (statusLine != null || collected != null || onMoreClick != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 1.dp),
@@ -291,22 +313,44 @@ private fun ComicCard(
                     Spacer(Modifier.weight(1f))
                 }
                 if (collected != null && onFavouriteToggle != null) {
-                    Icon(
-                        imageVector = if (collected) {
-                            Icons.Filled.Favorite
-                        } else {
-                            Icons.Outlined.FavoriteBorder
-                        },
-                        contentDescription = if (collected) "取消收藏" else "收藏",
-                        tint = if (collected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                    // I06：图形 20dp + IconButton 固定 48dp 触区；TalkBack 读当前收藏态
+                    IconButton(
+                        onClick = { onFavouriteToggle(comic.ref) },
                         modifier = Modifier
-                            .size(16.dp)
-                            .clickable(onClick = { onFavouriteToggle(comic.ref) }),
-                    )
+                            .size(48.dp)
+                            .semantics {
+                                contentDescription = if (collected) "取消收藏" else "收藏"
+                            },
+                    ) {
+                        Icon(
+                            imageVector = if (collected) {
+                                Icons.Filled.Favorite
+                            } else {
+                                Icons.Outlined.FavoriteBorder
+                            },
+                            contentDescription = null,
+                            tint = if (collected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                if (onMoreClick != null) {
+                    // I07：更多入口呈现原长按菜单；打开详情始终可达
+                    IconButton(
+                        onClick = { onMoreClick(comic.ref) },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         } else {
@@ -355,7 +399,7 @@ private fun ReadBadge(
 ) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        style = TextStyle(fontSize = 10.sp, lineHeight = 14.sp),
         color = content,
         maxLines = 1,
         modifier = modifier

@@ -54,9 +54,9 @@ fun ComicGridSkeleton(
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.H_GAP_DP.dp),
+        verticalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.V_GAP_DP.dp),
         userScrollEnabled = false,
     ) {
         items(itemCount) {
@@ -65,9 +65,9 @@ fun ComicGridSkeleton(
                     Modifier
                         .fillMaxWidth()
                         .aspectRatio(3f / 4f)
-                        .background(placeholder, RoundedCornerShape(6.dp)),
+                        .background(placeholder, com.jmread.ui.browse.ComicGridSpec.CoverShape),
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Box(
                     Modifier
                         .fillMaxWidth(0.82f)

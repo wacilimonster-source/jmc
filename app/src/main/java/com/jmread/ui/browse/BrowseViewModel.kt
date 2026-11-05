@@ -27,6 +27,39 @@ class BrowseViewModel : ViewModel() {
     private val _categories = MutableStateFlow<List<ComicCategory>>(emptyList())
     val categories: StateFlow<List<ComicCategory>> = _categories
 
+    // I05：分类加载独立 Loading/Success/Empty/Error——
+    // 此前 loadCategories 捕获异常后不暴露错误，总览只能靠 isEmpty 误判成「加载中」
+    private val _categoriesLoading = MutableStateFlow(false)
+    val categoriesLoading: StateFlow<Boolean> = _categoriesLoading
+
+    private val _categoriesError = MutableStateFlow<String?>(null)
+    val categoriesError: StateFlow<String?> = _categoriesError
+
+    /** 分类请求是否已有终态（成功或失败）；区分「还没加载」与「加载了但没有分类」 */
+    private val _categoriesReady = MutableStateFlow(false)
+    val categoriesReady: StateFlow<Boolean> = _categoriesReady
+
+    fun loadCategories() {
+        if (_categoriesLoading.value) return
+        viewModelScope.launch {
+            _categoriesLoading.value = true
+            _categoriesError.value = null
+            try {
+                val result = JmRepository.categories()
+                _categories.value = result
+                _categoriesReady.value = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 分类失败不阻塞作品流；错误显式暴露给分类区就地重试
+                _categoriesError.value = e.message?.takeIf { it.isNotBlank() } ?: "分类加载失败"
+                _categoriesReady.value = true
+            } finally {
+                _categoriesLoading.value = false
+            }
+        }
+    }
+
     private val _comics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val comics: StateFlow<List<ComicSummary>> = _comics
 
@@ -91,17 +124,7 @@ class BrowseViewModel : ViewModel() {
         isScrollStateRestored = true
     }
 
-    fun loadCategories() {
-        viewModelScope.launch {
-            try {
-                _categories.value = JmRepository.categories()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // 分类失败不阻塞浏览
-            }
-        }
-    }
+    // 旧版 loadCategories 已由上方带错误态的实现取代（I05）
 
     fun loadComics(
         page: Int,

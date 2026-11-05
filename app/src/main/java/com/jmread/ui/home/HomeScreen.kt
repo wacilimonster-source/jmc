@@ -1,6 +1,7 @@
 package com.jmread.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -16,14 +17,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,15 +54,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.model.BROWSE_TOTAL_SENTINEL
-import com.jmread.core.model.ComicSort
 import com.jmread.core.model.ComicSummary
 import com.jmread.core.model.RankTab
-import com.jmread.core.model.sortedByComicSort
 import com.jmread.ui.browse.ComicGridItem
 import com.jmread.ui.browse.ComicGridView
-import com.jmread.ui.browse.ReadFilter
-import com.jmread.ui.browse.filterByRead
-import com.jmread.ui.browse.readFilterOptions
 import com.jmread.ui.common.ComicGridSkeleton
 import com.jmread.ui.common.EmptyState
 import com.jmread.ui.common.ErrorRetry
@@ -74,8 +68,8 @@ import kotlinx.coroutines.delay
 /**
  * 首页 = 三 Tab（关注 / 排行榜 / 随便看看）。
  *
- * 排行榜保留榜单档位；原先榜单上方的频道入口 chips（推荐本本/汉化组/去码/全彩化/每周必看）
- * 改为在榜单下方直接展开成分区网格，内容与排行榜同款卡片，不再逐页跳转。
+ * 阶段 B：排行榜只保留榜单档位本体；运营分区 / 每周必看归入「发现」Tab，
+ * 首页保留「精选分区 ›」短入口。
  * 关注流是首屏 Tab，支持分页与新内容基线；
  * 随便看看因源无 /random，使用月榜热池本地随机，不伪装成服务端随机。
  */
@@ -83,7 +77,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     onComicClick: (String) -> Unit = {},
-    onOpenWeekly: () -> Unit = {},
+    onOpenDiscover: () -> Unit = {},
     onOpenFollowManage: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
     followViewModel: FollowFeedViewModel = viewModel(),
@@ -97,9 +91,6 @@ fun HomeScreen(
     val rankTotal by viewModel.rankTotal.collectAsState()
     val rankCacheAt by viewModel.rankCacheAt.collectAsState()
     val rankFirstContentReady by viewModel.rankFirstContentReady.collectAsState()
-    val promoteSections by viewModel.promoteSections.collectAsState()
-    val weeklySection by viewModel.weeklySection.collectAsState()
-    val sectionsLoading by viewModel.sectionsLoading.collectAsState()
     val randomComics by viewModel.randomComics.collectAsState()
     val randomLoading by viewModel.randomLoading.collectAsState()
     val randomError by viewModel.randomError.collectAsState()
@@ -205,10 +196,35 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(start = 16.dp, end = 16.dp, top = 16.dp),
                 ) {
+                    // 系列字标：JM 用低饱和暖灰点缀，不另造交互色
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = "JM",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = ".",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = " Reader",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // 内容定位徽标（应用级视觉声明，非分级验证）
                     Text(
-                        text = "JM Reader",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.weight(1f),
+                        text = "18+",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
                 // 更新横幅：点主体打开对话框，「稍后再说」只静默当前版本
@@ -305,14 +321,10 @@ fun HomeScreen(
                         total = rankTotal,
                         cacheAt = rankCacheAt,
                         columns = gridColumns,
-                        promoteSections = promoteSections,
-                        weeklySection = weeklySection,
-                        sectionsLoading = sectionsLoading,
                         rankRefreshTick = rankRefreshTick,
                         onTypeChange = { viewModel.loadRank(it) },
                         onRefreshRank = { viewModel.loadRank(rankType, force = true) },
-                        onRefreshSections = viewModel::refreshSections,
-                        onOpenWeekly = onOpenWeekly,
+                        onOpenDiscover = onOpenDiscover,
                         onComicClick = onComicClick,
                         gridState = rankGridState,
                     )
@@ -427,14 +439,6 @@ private fun FollowTab(
     }
 }
 
-/** 首页内容源：榜单档位 / 推荐分区 / 每周必看，三者同级切换 */
-private const val SOURCE_RANK = "rank"
-private const val SOURCE_WEEKLY = "weekly"
-private fun sectionSource(key: String) = "section:$key"
-
-/** 分区可用的排序：/promote block 只带 update_at，没有点赞/观看数 */
-private val sectionSorts = listOf(ComicSort.DD, ComicSort.DA)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RankTab(
@@ -446,28 +450,16 @@ private fun RankTab(
     total: Int,
     cacheAt: Long?,
     columns: Int,
-    promoteSections: List<HomePromoteSection>,
-    weeklySection: HomeWeeklySection?,
-    sectionsLoading: Boolean,
     rankRefreshTick: Int,
     onTypeChange: (String) -> Unit,
     onRefreshRank: () -> Unit,
-    onRefreshSections: () -> Unit,
-    onOpenWeekly: () -> Unit,
+    onOpenDiscover: () -> Unit,
     onComicClick: (String) -> Unit,
     gridState: LazyGridState,
 ) {
-    var source by rememberSaveable { mutableStateOf(SOURCE_RANK) }
-    var sectionSortName by rememberSaveable { mutableStateOf(ComicSort.DD.name) }
-    var sectionFilterName by rememberSaveable { mutableStateOf(ReadFilter.ALL.name) }
-    val sectionSort = ComicSort.valueOf(sectionSortName)
-    val sectionFilter = ReadFilter.valueOf(sectionFilterName)
+    val rankSelected = true
 
-    val selectedSection = promoteSections.firstOrNull { source == sectionSource(it.key) }
-    val weeklySelected = source == SOURCE_WEEKLY
-    val rankSelected = !weeklySelected && selectedSection == null
-
-    // 榜单静默刷新成功才回顶；用户正在看分区/每周必看时不能被后台刷新打断
+    // 榜单静默刷新成功才回顶
     val lastRankTick = remember { mutableIntStateOf(rankRefreshTick) }
     LaunchedEffect(rankRefreshTick) {
         if (rankRefreshTick != lastRankTick.intValue) {
@@ -476,42 +468,30 @@ private fun RankTab(
         }
     }
 
-    // 分区轮换后原选中项消失：回到榜单，避免内容区空白
-    LaunchedEffect(promoteSections, source) {
-        if (source.startsWith("section:") && promoteSections.isNotEmpty() &&
-            promoteSections.none { source == sectionSource(it.key) }
-        ) {
-            source = SOURCE_RANK
-        }
-    }
-
-    // 切换内容源时回到顶部（首次进入不强制，保留榜单滚动位置恢复）
-    var lastSource by remember { mutableStateOf(source) }
-    LaunchedEffect(source) {
-        if (source != lastSource) {
-            lastSource = source
-            gridState.requestScrollToItem(0)
-        }
-    }
-
-    val sectionComics = remember(selectedSection, sectionSort, sectionFilter) {
-        selectedSection?.comics
-            ?.sortedByComicSort(sectionSort)
-            ?.filterByRead(sectionFilter)
-            .orEmpty()
-    }
-    val weeklyComics = weeklySection?.comics.orEmpty()
-
-    val refreshing = if (rankSelected) loading else sectionsLoading
-    val onRefresh = if (rankSelected) onRefreshRank else onRefreshSections
-
     PullToRefreshBox(
-        isRefreshing = refreshing,
-        onRefresh = onRefresh,
+        isRefreshing = loading,
+        onRefresh = onRefreshRank,
         modifier = Modifier.fillMaxSize(),
     ) {
         Column(Modifier.fillMaxSize()) {
-            // 榜单档位与推荐分区同级：同一排 chips，选中谁就展示谁
+            // ── 榜单档位 ────────────────────────────────────────────────
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            ) {
+                Text(
+                    text = "人气榜单",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "近期热门",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -522,92 +502,30 @@ private fun RankTab(
             ) {
                 rankTabs.forEach { tab ->
                     FilterChip(
-                        selected = rankSelected && rankType == tab.value,
-                        onClick = {
-                            source = SOURCE_RANK
-                            onTypeChange(tab.value)
-                        },
+                        selected = rankType == tab.value,
+                        onClick = { onTypeChange(tab.value) },
                         label = { Text(tab.label) },
                     )
                 }
-                if (promoteSections.isNotEmpty() || weeklySection != null) {
-                    Box(
-                        Modifier
-                            .padding(horizontal = 2.dp)
-                            .width(1.dp)
-                            .height(24.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                    )
-                }
-                promoteSections.forEach { section ->
-                    val key = sectionSource(section.key)
-                    FilterChip(
-                        selected = source == key,
-                        onClick = { source = key },
-                        label = { Text(section.title) },
-                    )
-                }
-                if (weeklySection != null) {
-                    FilterChip(
-                        selected = weeklySelected,
-                        onClick = { source = SOURCE_WEEKLY },
-                        label = { Text("每周必看") },
-                    )
-                }
             }
 
-            // 分区选中时补排序与阅读状态筛选；榜单档位本身即筛选，不重复展示
-            if (selectedSection != null) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(sectionSorts, key = { "sort-${it.name}" }) { s ->
-                        FilterChip(
-                            selected = sectionSort == s,
-                            onClick = {
-                                sectionSortName = s.name
-                                gridState.requestScrollToItem(0)
-                            },
-                            label = { Text(s.label) },
-                        )
-                    }
-                    items(readFilterOptions, key = { "read-${it.first.name}" }) { (f, label) ->
-                        FilterChip(
-                            selected = sectionFilter == f,
-                            onClick = {
-                                sectionFilterName = f.name
-                                gridState.requestScrollToItem(0)
-                            },
-                            label = { Text(label) },
-                        )
-                    }
-                }
+            // ── 精选分区短入口：运营 block 与每周必看已归入发现（阶段 B）──
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 2.dp),
+            ) {
+                Text(
+                    text = "发现值得一读的作品",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onOpenDiscover) { Text("精选分区 ›") }
             }
 
-            if (weeklySelected && weeklySection != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 2.dp),
-                ) {
-                    Text(
-                        text = "每周必看 · ${weeklySection.label}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = onOpenWeekly) { Text("切换期数") }
-                }
-            }
-
-            val count = when {
-                rankSelected ->
-                    if (comics.isNotEmpty() && total > 0 && total != BROWSE_TOTAL_SENTINEL) total else null
-                selectedSection != null -> selectedSection.comics.size
-                else -> weeklyComics.size
-            }
+            val count = if (comics.isNotEmpty() && total > 0 && total != BROWSE_TOTAL_SENTINEL) total else null
             if (count != null && count > 0) {
                 Text(
                     text = "共 $count 部",
@@ -616,7 +534,7 @@ private fun RankTab(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                 )
             }
-            if (rankSelected && cacheAt != null) {
+            if (cacheAt != null) {
                 InlineErrorBanner(
                     message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}前的缓存",
                     onRetry = onRefreshRank,
@@ -629,107 +547,55 @@ private fun RankTab(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.H_GAP_DP.dp),
+                verticalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.V_GAP_DP.dp),
             ) {
                 when {
-                    selectedSection != null -> {
-                        if (sectionComics.isEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "section-empty") {
-                                EmptyState(
-                                    message = "没有符合筛选条件的作品",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(220.dp),
-                                    actionText = "看全部",
-                                    onAction = {
-                                        sectionFilterName = ReadFilter.ALL.name
-                                        gridState.requestScrollToItem(0)
-                                    },
-                                )
-                            }
-                        } else {
-                            items(
-                                sectionComics,
-                                key = { "section-${selectedSection.key}-${it.ref}" },
-                            ) { comic ->
-                                ComicGridItem(
-                                    comic = comic,
-                                    columns = columns,
-                                    onComicClick = onComicClick,
-                                )
-                            }
-                        }
+                    comics.isEmpty() && error != null && !loading -> item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "rank-error",
+                    ) {
+                        ErrorRetry(
+                            message = error,
+                            onRetry = onRefreshRank,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                        )
                     }
 
-                    weeklySelected -> {
-                        if (weeklyComics.isEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "weekly-empty") {
-                                EmptyState(
-                                    message = "每周必看暂无内容",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(220.dp),
-                                )
-                            }
-                        } else {
-                            items(weeklyComics, key = { "weekly-${it.ref}" }) { comic ->
-                                ComicGridItem(
-                                    comic = comic,
-                                    columns = columns,
-                                    onComicClick = onComicClick,
-                                )
-                            }
-                        }
+                    comics.isEmpty() && loading -> items(
+                        count = columns * 3,
+                        key = { "rank-skeleton-$it" },
+                    ) {
+                        RankSkeletonCell()
                     }
 
-                    else -> when {
-                        comics.isEmpty() && error != null && !loading -> item(
-                            span = { GridItemSpan(maxLineSpan) },
-                            key = "rank-error",
-                        ) {
-                            ErrorRetry(
-                                message = error,
-                                onRetry = onRefreshRank,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(220.dp),
-                            )
-                        }
+                    comics.isEmpty() -> item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        key = "rank-empty",
+                    ) {
+                        EmptyState(
+                            message = "该档位暂无数据\n可切换上方其它档位",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp),
+                        )
+                    }
 
-                        comics.isEmpty() && loading -> items(
-                            count = columns * 3,
-                            key = { "rank-skeleton-$it" },
-                        ) {
-                            RankSkeletonCell()
-                        }
-
-                        comics.isEmpty() -> item(
-                            span = { GridItemSpan(maxLineSpan) },
-                            key = "rank-empty",
-                        ) {
-                            EmptyState(
-                                message = "该档位暂无数据\n可切换上方其它档位",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(220.dp),
-                            )
-                        }
-
-                        else -> {
-                            if (error != null) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "rank-inline-error") {
-                                    InlineErrorBanner(message = error, onRetry = onRefreshRank)
-                                }
+                    else -> {
+                        if (error != null) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "rank-inline-error") {
+                                InlineErrorBanner(message = error, onRetry = onRefreshRank)
                             }
-                            items(comics, key = { "rank-${it.ref}" }) { comic ->
-                                ComicGridItem(
-                                    comic = comic,
-                                    columns = columns,
-                                    onComicClick = onComicClick,
-                                )
-                            }
+                        }
+                        items(comics, key = { "rank-${it.ref}" }) { comic ->
+                            ComicGridItem(
+                                comic = comic,
+                                columns = columns,
+                                onComicClick = onComicClick,
+                            )
                         }
                     }
                 }
@@ -738,7 +604,7 @@ private fun RankTab(
     }
 }
 
-/** 榜单首屏骨架格：与 ComicGridView 的卡片同比例，避免加载完成后跳动 */
+/** 榜单首屏骨架格：与 ComicGridView 的卡片同比例、同圆角，避免加载完成后跳动 */
 @Composable
 private fun RankSkeletonCell() {
     Box(
@@ -747,7 +613,7 @@ private fun RankSkeletonCell() {
             .aspectRatio(3f / 4f)
             .background(
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                RoundedCornerShape(6.dp),
+                com.jmread.ui.browse.ComicGridSpec.CoverShape,
             ),
     )
 }

@@ -53,6 +53,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -161,6 +162,7 @@ fun ReaderScreen(
     var showPanel by remember { mutableStateOf(false) }
     var showChapterSheet by remember { mutableStateOf(false) }
     var showPageActionSheet by remember { mutableStateOf(false) }
+    var showToolsSheet by remember { mutableStateOf(false) }
     var pageActionTarget by remember { mutableIntStateOf(-1) }
 
     // 手动翻转兜底：url -> 1=强制倒序 / -1=强制原样 / 缺席=自动判定。
@@ -243,9 +245,9 @@ fun ReaderScreen(
         }
     }
 
-    // showPanel 与系统栏同步：显示面板时显示系统栏，隐藏面板时隐藏系统栏
-    LaunchedEffect(showPanel, showChapterSheet, showPageActionSheet) {
-        if (showPanel || showChapterSheet || showPageActionSheet) {
+    // showPanel 与系统栏同步：显示面板/弹层时显示系统栏，全部关闭时隐藏系统栏
+    LaunchedEffect(showPanel, showChapterSheet, showPageActionSheet, showToolsSheet) {
+        if (showPanel || showChapterSheet || showPageActionSheet || showToolsSheet) {
             windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
         } else {
             windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
@@ -628,7 +630,7 @@ fun ReaderScreen(
                             text = title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     },
                     navigationIcon = {
@@ -636,11 +638,14 @@ fun ReaderScreen(
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "返回",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xCC000000)),
+                    // 面板使用系列主题表面（画布保持黑底不变）
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+                    ),
                 )
             }
         },
@@ -648,6 +653,20 @@ fun ReaderScreen(
             AnimatedVisibility(visible = showPanel) {
                 ReaderControlPanel(
                     modifier = Modifier.navigationBarsPadding(),
+                    currentPage = currentPage + 1,
+                    totalPages = pages.size,
+                    onPageSeek = ::seekToPage,
+                    hasPrev = currentChapterIndex > 0,
+                    hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
+                    onPrevChapter = {
+                        sortedChapters.getOrNull(currentChapterIndex - 1)?.let { switchTo(it.order) }
+                    },
+                    onNextChapter = {
+                        sortedChapters.getOrNull(currentChapterIndex + 1)?.let { switchTo(it.order) }
+                    },
+                    showChapters = showChapterButton,
+                    onOpenChapters = { showChapterSheet = true },
+                    chapterLabel = "第 $vmOrder 话",
                     scrollMode = scrollMode,
                     onModeChange = { mode ->
                         if (mode != scrollMode) {
@@ -669,41 +688,7 @@ fun ReaderScreen(
                             }
                         }
                     },
-                    brightness = brightness,
-                    onBrightnessChange = {
-                        brightness = it
-                        brightnessAdjusted = true
-                        ReaderPrefs.current().brightness = it
-                    },
-                    currentPage = currentPage + 1,
-                    totalPages = pages.size,
-                    onPageSeek = ::seekToPage,
-                    hasPrev = currentChapterIndex > 0,
-                    hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
-                    onPrevChapter = {
-                        sortedChapters.getOrNull(currentChapterIndex - 1)?.let { switchTo(it.order) }
-                    },
-                    onNextChapter = {
-                        sortedChapters.getOrNull(currentChapterIndex + 1)?.let { switchTo(it.order) }
-                    },
-                    flipState = pages.getOrNull(currentPage)
-                        ?.takeUnless { it.imageUrl.startsWith("file:") }
-                        ?.let { manualFlip[it.imageUrl] } ?: 0,
-                    onToggleFlip = {
-                        val u = pages.getOrNull(currentPage)?.imageUrl
-                        // 本地页已还原，翻转对显示/保存都无效
-                        if (u != null && !u.startsWith("file:")) {
-                            manualFlip[u] = when (manualFlip[u] ?: 0) {
-                                0 -> 1
-                                1 -> -1
-                                else -> 0
-                            }
-                            if (manualFlip[u] == 0) manualFlip.remove(u)
-                        }
-                    },
-                    showChapters = showChapterButton,
-                    onOpenChapters = { showChapterSheet = true },
-                    chapterLabel = "第 $vmOrder 话",
+                    onOpenMore = { showToolsSheet = true },
                 )
             }
         },
@@ -943,7 +928,7 @@ fun ReaderScreen(
         }
         ModalBottomSheet(
             onDismissRequest = { showChapterSheet = false },
-            containerColor = Color(0xFF161616),
+            containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                 Row(
@@ -954,7 +939,7 @@ fun ReaderScreen(
                 ) {
                     Text(
                         text = "章节（${sortedChapters.size}）",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -967,7 +952,7 @@ fun ReaderScreen(
                     ) {
                         Text(
                             text = if (chapterDesc) "倒序 ↓" else "正序 ↑",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -1013,9 +998,9 @@ fun ReaderScreen(
                                     color = if (isCurrent) {
                                         MaterialTheme.colorScheme.primary
                                     } else if (canOpen) {
-                                        Color.White
+                                        MaterialTheme.colorScheme.onSurface
                                     } else {
-                                        Color.Gray
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isCurrent) androidx.compose.ui.text.font.FontWeight.Bold else null,
@@ -1025,7 +1010,7 @@ fun ReaderScreen(
                                 if (!canOpen) {
                                     Text(
                                         text = "未下载，联网后可读",
-                                        color = Color.Gray,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall,
                                     )
                                 }
@@ -1042,7 +1027,7 @@ fun ReaderScreen(
                                 Icon(
                                     Icons.Filled.Check,
                                     contentDescription = "已读",
-                                    tint = Color(0xFF8A8A8A),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(Modifier.width(6.dp))
@@ -1050,7 +1035,7 @@ fun ReaderScreen(
                             if (isDownloaded) {
                                 Text(
                                     text = "已下载",
-                                    color = Color(0xFF8A8A8A),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
@@ -1061,17 +1046,105 @@ fun ReaderScreen(
         }
     }
 
+    // ── 更多工具（I11）：亮度 + 本页图片修复；面板只留高频控件 ─────────────
+    if (showToolsSheet) {
+        // 当前页的翻转状态：本地页已还原，翻转对显示/保存都无效
+        val currentUrl = pages.getOrNull(currentPage)?.imageUrl
+        val flipState = currentUrl
+            ?.takeUnless { it.startsWith("file:") }
+            ?.let { manualFlip[it] }
+            ?: 0
+        ModalBottomSheet(onDismissRequest = { showToolsSheet = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 24.dp),
+            ) {
+                Text("阅读工具", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "第 ${currentPage + 1} 页",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Text(
+                    text = "亮度",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = brightness,
+                        onValueChange = {
+                            brightness = it
+                            brightnessAdjusted = true
+                            ReaderPrefs.current().brightness = it
+                        },
+                        valueRange = 0.2f..1f,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "${(brightness * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(40.dp),
+                    )
+                }
+                Text(
+                    text = "本页图片修复 · 仅影响当前页",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = flipState == 0,
+                        onClick = { manualFlip.remove(currentUrl ?: "") },
+                        label = { Text("自动") },
+                    )
+                    FilterChip(
+                        selected = flipState == 1,
+                        onClick = {
+                            if (currentUrl != null && !currentUrl.startsWith("file:")) {
+                                manualFlip[currentUrl] = 1
+                            }
+                        },
+                        label = { Text("倒序") },
+                    )
+                    FilterChip(
+                        selected = flipState == -1,
+                        onClick = {
+                            if (currentUrl != null && !currentUrl.startsWith("file:")) {
+                                manualFlip[currentUrl] = -1
+                            }
+                        },
+                        label = { Text("原样") },
+                    )
+                }
+                Text(
+                    text = "自动判定极端情况会漏判/误翻；倒序/原样为手动兜底，不改变还原算法与缓存",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+
     // ── 长按页操作菜单：保存到相册 / 分享此页（P1-04） ────────────────────
     if (showPageActionSheet && pageActionTarget >= 0) {
         val actionPage = pageActionTarget
         ModalBottomSheet(
             onDismissRequest = { showPageActionSheet = false },
-            containerColor = Color(0xFF161616),
+            containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                 Text(
                     text = "第 ${actionPage + 1} 页",
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
@@ -1088,11 +1161,11 @@ fun ReaderScreen(
                     Icon(
                         Icons.Filled.SaveAlt,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.width(14.dp))
-                    Text("保存到相册", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text("保存到相册", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
                 }
                 Row(
                     modifier = Modifier
@@ -1107,11 +1180,11 @@ fun ReaderScreen(
                     Icon(
                         Icons.Filled.Share,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.width(14.dp))
-                    Text("分享此页", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text("分享此页", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.size(12.dp))
             }
@@ -1272,14 +1345,14 @@ private fun GuideZone(label: String, action: String, modifier: Modifier = Modifi
     }
 }
 
-/** 阅读器底部控制面板：亮度 / 页码 / 模式 / 翻转 / 章节 / 上一话·下一话。 */
+/**
+ * 阅读器底部控制面板（I11 收敛）：章节与返回在上层；
+ * 面板只留章节名 / 页码 / 上一话·目录·下一话 / 模式；
+ * 亮度与本页图片修复收进「更多工具」弹层（onOpenMore），面板使用系列主题表面。
+ */
 @Composable
 private fun ReaderControlPanel(
     modifier: Modifier = Modifier,
-    scrollMode: Boolean,
-    onModeChange: (Boolean) -> Unit,
-    brightness: Float,
-    onBrightnessChange: (Float) -> Unit,
     currentPage: Int,
     totalPages: Int,
     onPageSeek: (Int) -> Unit,
@@ -1287,39 +1360,38 @@ private fun ReaderControlPanel(
     hasNext: Boolean,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit,
-    flipState: Int = 0,
-    onToggleFlip: () -> Unit = {},
     showChapters: Boolean = true,
     onOpenChapters: () -> Unit = {},
     chapterLabel: String = "",
+    scrollMode: Boolean,
+    onModeChange: (Boolean) -> Unit,
+    onOpenMore: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier,
-        color = Color(0xE6000000),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 18.dp, vertical = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.BrightnessMedium,
-                    contentDescription = "亮度",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Slider(
-                    value = brightness,
-                    onValueChange = onBrightnessChange,
-                    valueRange = 0.2f..1f,
+                Text(
+                    text = if (chapterLabel.isBlank()) "本话" else chapterLabel,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "${(brightness * 100).toInt()}%",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = "更多",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(onClick = onOpenMore)
+                        .padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
                 )
             }
             if (totalPages > 1) {
@@ -1334,114 +1406,84 @@ private fun ReaderControlPanel(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "页码",
-                        color = Color.White,
+                        text = "本话进度",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.width(32.dp),
                     )
-                    Slider(
-                        value = sliderPos,
-                        onValueChange = {
-                            dragging = true
-                            sliderPos = it
-                        },
-                        onValueChangeFinished = {
-                            dragging = false
-                            onPageSeek(sliderPos.toInt().coerceIn(0, totalPages - 1))
-                        },
-                        valueRange = 0f..(totalPages - 1).toFloat(),
-                        modifier = Modifier.weight(1f),
-                    )
+                    Spacer(Modifier.weight(1f))
+                    // 拖动时显示预览值，松手才 seek（真实页数映射保持）
                     Text(
-                        text = "${sliderPos.toInt() + 1}",
-                        color = Color.White,
+                        text = "${sliderPos.toInt() + 1} / $totalPages",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.width(40.dp),
                     )
                 }
+                Slider(
+                    value = sliderPos,
+                    onValueChange = {
+                        dragging = true
+                        sliderPos = it
+                    },
+                    onValueChangeFinished = {
+                        dragging = false
+                        onPageSeek(sliderPos.toInt().coerceIn(0, totalPages - 1))
+                    },
+                    valueRange = 0f..(totalPages - 1).toFloat(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onModeChange(false) }) {
-                    Icon(
-                        Icons.Filled.ViewCarousel,
-                        contentDescription = "横滑翻页",
-                        tint = if (scrollMode) Color.Gray else Color.White,
-                    )
-                }
-                Text(
-                    text = if (scrollMode) "滚动流" else "翻页",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                IconButton(onClick = { onModeChange(true) }) {
-                    Icon(
-                        Icons.Filled.ViewAgenda,
-                        contentDescription = "滚动流",
-                        tint = if (scrollMode) Color.White else Color.Gray,
-                    )
-                }
+                PanelActionButton(label = "上一话", enabled = hasPrev, onClick = onPrevChapter)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onToggleFlip) {
-                    Icon(
-                        Icons.Filled.Flip,
-                        contentDescription = "翻转本页横条",
-                        tint = if (flipState == 0) Color.White else MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Text(
-                    text = when (flipState) {
-                        1 -> "已倒序"
-                        -1 -> "原样"
-                        else -> "自动"
-                    },
-                    color = if (flipState == 0) Color.Gray else MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelSmall,
-                )
                 if (showChapters) {
-                    IconButton(onClick = onOpenChapters) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.MenuBook,
-                            contentDescription = "章节列表",
-                            tint = Color.White,
-                        )
-                    }
-                    Text(
-                        text = "章节",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+                    PanelActionButton(label = "目录", enabled = true, onClick = onOpenChapters)
+                    Spacer(Modifier.weight(1f))
                 }
+                PanelActionButton(label = "下一话", enabled = hasNext, onClick = onNextChapter)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevChapter, enabled = hasPrev) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "上一话",
-                        tint = if (hasPrev) Color.White else Color.Gray,
-                    )
-                }
                 Text(
-                    text = if (chapterLabel.isBlank()) {
-                        "$currentPage / $totalPages"
-                    } else {
-                        "$chapterLabel · $currentPage / $totalPages"
-                    },
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
+                    text = if (scrollMode) "滚动流" else "横滑翻页",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                IconButton(onClick = onNextChapter, enabled = hasNext) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "下一话",
-                        tint = if (hasNext) Color.White else Color.Gray,
-                    )
-                }
+                Text(
+                    text = "切换模式",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { onModeChange(!scrollMode) }
+                        .padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
+                )
             }
         }
+    }
+}
+
+/** 面板次级操作按钮：48dp 高触区，禁用态降低不透明度 */
+@Composable
+private fun PanelActionButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            },
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
     }
 }
 

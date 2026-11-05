@@ -189,23 +189,26 @@ fun ComicDetailScreen(
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
+                        // I12：宽屏同排；窄屏/大字改主按钮整行、次按钮另排，避免横向拥挤
+                        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                        val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+                        val narrowLayout = configuration.screenWidthDp < 360 || fontScale > 1.3f
+                        val onRead: () -> Unit = {
+                            val target = lastProgress?.order ?: chapters.firstOrNull()?.order
+                            if (target != null) onOpenReader(ref, target)
+                        }
+                        if (narrowLayout) {
                             Button(
-                                onClick = {
-                                    if (lastProgress != null) {
-                                        onOpenReader(ref, lastProgress!!.order)
-                                    } else {
-                                        chapters.firstOrNull()?.let { onOpenReader(ref, it.order) }
-                                    }
-                                },
+                                onClick = onRead,
                                 enabled = chapters.isNotEmpty(),
+                                modifier = Modifier.fillMaxWidth(),
                             )
                             { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
+                            Spacer(Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { viewModel.downloadAll(comicId, comic, chapters) },
                                 enabled = chapters.isNotEmpty(),
+                                modifier = Modifier.fillMaxWidth(),
                             )
                             {
                                 Icon(
@@ -215,6 +218,30 @@ fun ComicDetailScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text("下载整本")
+                            }
+                        } else {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Button(
+                                    onClick = onRead,
+                                    enabled = chapters.isNotEmpty(),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
+                                OutlinedButton(
+                                    onClick = { viewModel.downloadAll(comicId, comic, chapters) },
+                                    enabled = chapters.isNotEmpty(),
+                                )
+                                {
+                                    Icon(
+                                        Icons.Filled.Download,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("下载整本")
+                                }
                             }
                         }
                         if (lastProgress != null) {

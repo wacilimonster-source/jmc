@@ -231,6 +231,8 @@ fun LibraryScreen(
                         }
                     },
                     onComicLongClick = { id -> itemsById[id]?.let { menuTarget = it } },
+                    // I07：卡片补「更多」入口——长按菜单（打开详情/清除记录/收藏）不再藏于长按
+                    onMoreClick = { id -> itemsById[id]?.let { menuTarget = it } },
                     modifier = Modifier.weight(1f),
                     statusLineOf = { id -> itemsById[id]?.statusLine },
                     collectedOf = { id -> itemsById[id]?.collected },

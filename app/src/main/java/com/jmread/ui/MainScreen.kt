@@ -11,9 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
@@ -25,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -54,13 +59,14 @@ import kotlinx.coroutines.launch
 private data class TabItem(
     val route: String,
     val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
 )
 
 private val tabs = listOf(
-    TabItem("home", "首页"),
-    TabItem("category", "分类"),
-    TabItem("search", "搜索"),
-    TabItem("mine", "我的"),
+    TabItem("home", "首页", Icons.Filled.Home),
+    TabItem("discover", "发现", Icons.Filled.Explore),
+    TabItem("search", "搜索", Icons.Filled.Search),
+    TabItem("mine", "我的", Icons.Filled.Person),
 )
 
 /** 需要整屏展示、不应挂底部标签栏的路由前缀 */
@@ -109,6 +115,17 @@ fun MainScreen() {
     val hideBottomBar = hideBottomBarInReader &&
         fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
 
+    // I09 子页归属：详情/频道等子页不硬归首页——
+    // 当前栈顶是顶级 Tab 时跟随栈顶，否则保留来源 Tab 高亮（通知直达兜底为首页）
+    var lastTabRoute by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf("home")
+    }
+    val activeTabRoute = tabs.firstOrNull { it.route == route?.substringBefore('?') }?.route
+    if (activeTabRoute != null && activeTabRoute != lastTabRoute) {
+        lastTabRoute = activeTabRoute
+    }
+    val selectedTabRoute = activeTabRoute ?: lastTabRoute
+
     // 无登录墙：禁漫全部读链路免登录可用，登录页只在「我的」页点击时进入
 
     Scaffold(
@@ -118,8 +135,7 @@ fun MainScreen() {
             if (!hideBottomBar) {
                 NavigationBar(modifier = Modifier.height(64.dp)) {
                     tabs.forEach { tab ->
-                        val selected = currentDestination?.hierarchy
-                            ?.any { it.route?.substringBefore('?') == tab.route } == true
+                        val selected = selectedTabRoute == tab.route
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
@@ -131,7 +147,13 @@ fun MainScreen() {
                                     restoreState = true
                                 }
                             },
-                            icon = {},
+                            icon = {
+                                Icon(
+                                    imageVector = tab.icon,
+                                    contentDescription = null,
+                                )
+                            },
+                            alwaysShowLabel = true,
                             label = { Text(tab.label, fontSize = 12.sp) },
                         )
                     }
@@ -173,7 +195,7 @@ fun MainScreen() {
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
-                    onOpenWeekly = { navController.navigate("weekly") },
+                    onOpenDiscover = { navController.navigate("discover") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
                 )
             }
@@ -216,6 +238,23 @@ fun MainScreen() {
                     },
                 )
             }
+            composable("discover") {
+                // 阶段 B：发现中心——分类/官方标签/推荐/每周必看/运营频道的共同入口
+                com.jmread.ui.discover.DiscoverScreen(
+                    onCategoryClick = { id ->
+                        navController.navigate("category/${Uri.encode(id)}")
+                    },
+                    onTagClick = { tag ->
+                        navController.navigate("tag/${Uri.encode(tag)}")
+                    },
+                    onOpenPromote = { navController.navigate("promote") },
+                    onOpenWeekly = { navController.navigate("weekly") },
+                    onOpenChannel = { channelId ->
+                        navController.navigate("channel/${Uri.encode(channelId)}")
+                    },
+                )
+            }
+            // 旧「分类」Tab 路由保留可达（发现页承载其入口；外部直达不落空）
             composable("category") {
                 CategoryScreen(
                     onCategoryClick = { id ->
