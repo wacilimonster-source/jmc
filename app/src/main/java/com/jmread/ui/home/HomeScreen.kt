@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,13 +28,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -54,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -73,7 +72,7 @@ import kotlinx.coroutines.delay
 /**
  * 首页 = 三 Tab（关注 / 排行榜 / 随便看看）。
  *
- * 顶栏挂「推荐本本 / 每周必看」两个精选入口（原发现页「精选内容」区）；
+ * 标题栏右侧为「推荐本本 / 每周必看」文字入口，不另占一行；
  * 发现页承载官方标签与运营频道。
  * 关注流是首屏 Tab，支持分页与新内容基线；
  * 随便看看因源无 /random，使用月榜热池本地随机，不伪装成服务端随机。
@@ -200,57 +199,53 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                        .padding(horizontal = 16.dp)
+                        .heightIn(min = 56.dp),
                 ) {
-                    // 系列字标：JM 用低饱和暖灰点缀，不另造交互色
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = "JM",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text(
-                            text = ".",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = " Reader",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    // 内容定位徽标（应用级视觉声明，非分级验证）
-                    Text(
-                        text = "18+",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                                shape = RoundedCornerShape(4.dp),
+                    // 先为两个完整入口留出宽度，窄屏或大字体时缩短左侧字标。
+                    BoxWithConstraints(Modifier.weight(1f).padding(end = 8.dp)) {
+                        val compactBrand = maxWidth < 156.dp * LocalDensity.current.fontScale
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "JM",
+                                    style = MaterialTheme.typography.titleLarge,
+                                )
+                                Text(
+                                    text = ".",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                if (!compactBrand) {
+                                    Text(
+                                        text = " Reader",
+                                        style = MaterialTheme.typography.titleLarge,
+                                    )
+                                }
+                            }
+                            // 内容定位徽标（应用级视觉声明，非分级验证）
+                            Text(
+                                text = "18+",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(start = 8.dp)
+                                    .border(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(4.dp),
+                                    )
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
                             )
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
-                // ── 精选入口：推荐本本 / 每周必看（原发现页「精选内容」区上移）──
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    HomeEntryCard(
+                        }
+                    }
+                    HomeEntryButton(
                         title = "推荐本本",
-                        subtitle = "按来源编排的精选内容",
                         onClick = onOpenPromote,
-                        modifier = Modifier.weight(1f),
                     )
-                    HomeEntryCard(
+                    HomeEntryButton(
                         title = "每周必看",
-                        subtitle = "选择期数，查看当期作品",
                         onClick = onOpenWeekly,
-                        modifier = Modifier.weight(1f),
                     )
                 }
                 // 更新横幅：点主体打开对话框，「稍后再说」只静默当前版本
@@ -628,40 +623,21 @@ private fun RankSkeletonCell() {
     )
 }
 
-/** 首页顶栏精选入口卡：推荐本本 / 每周必看，样式与发现页菜单卡同族 */
+/** 标题栏精选入口：弱化视觉重量，保留完整名称与至少 48dp 高的点击区域。 */
 @Composable
-private fun HomeEntryCard(
+private fun HomeEntryButton(
     title: String,
-    subtitle: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.heightIn(min = 48.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
-        modifier = modifier.clickable(onClick = onClick),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
-            )
-        }
+        Text(text = title, maxLines = 1, softWrap = false)
     }
 }
 

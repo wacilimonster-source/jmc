@@ -1,6 +1,6 @@
 {
-  "sha256": "c5a7b068a5e137042600e29e328493816a82594fc1ef6a311da9f16736c45f50",
-  "version": "0.7.1",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.7.1.apk",
-  "notes": "JM Reader 0.7.1 首页与发现页布局调整：\n1. 修复底栏标签选中后文字显示不全（标签栏恢复 M3 标准高度，选中态完整显示）\n2. 推荐本本 / 每周必看入口上移至首页顶栏，首屏一键直达\n3. 发现页官方标签全部四组默认展开，并置于页面最上方\n4. 移除发现页「按分类找作品」入口（旧分类路由保留可达）"
+  "sha256": "82b7585497a4130428c0923707f2b6e5b5b7d9aea859b66a46c5a6f27e3be7e0",
+  "version": "0.7.2",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.7.2.apk",
+  "notes": "JM Reader 0.7.2 首页顶栏精简：\n1. 推荐本本 / 每周必看入口收纳至标题栏右侧文字入口，不再单独占一行，首屏更聚焦内容\n2. 窄屏或系统大字体时自动缩短「JM. Reader」字标为「JM.」，入口不被挤压换行\n3. 入口保留完整名称与至少 48dp 点击高度，弱化视觉重量但易于触达"
 }
