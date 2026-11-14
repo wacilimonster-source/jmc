@@ -1,6 +1,6 @@
 {
-  "sha256": "82b7585497a4130428c0923707f2b6e5b5b7d9aea859b66a46c5a6f27e3be7e0",
-  "version": "0.7.2",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.7.2.apk",
-  "notes": "JM Reader 0.7.2 首页顶栏精简：\n1. 推荐本本 / 每周必看入口收纳至标题栏右侧文字入口，不再单独占一行，首屏更聚焦内容\n2. 窄屏或系统大字体时自动缩短「JM. Reader」字标为「JM.」，入口不被挤压换行\n3. 入口保留完整名称与至少 48dp 点击高度，弱化视觉重量但易于触达"
+  "sha256": "053c8880d15c01025dc88fa0ffd4afb50353cc54bf11d0a344fe68a47266af94",
+  "version": "0.7.3",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.7.3.apk",
+  "notes": "JM Reader 0.7.3 体验修复与稳定性：\n1. Android 13+ 首次下载时申请通知权限，下载完成提醒不再默认静默\n2. 底栏重复点击当前标签回到该 Tab 根页，不再停留在详情等子页\n3. 榜单下拉刷新指示器不再遮挡档位 chip\n4. 搜索框清空回到初始态，搜索历史入口恢复可用\n5. 下载失败章节提供文字「重试」按钮，整行点击也可重试\n6. 横屏详情将主按钮并入封面右侧信息列，首屏完整可见\n7. 手动域名不可用时自动切换并明确提示（Snackbar + 设置页实时标签）\n8. 大字体下每行数量设置补充「建议 2 列」提示"
 }

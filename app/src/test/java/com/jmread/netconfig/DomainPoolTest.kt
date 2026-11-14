@@ -1,7 +1,13 @@
 package com.jmread.netconfig
 
 import com.jmread.core.netconfig.DomainPool
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -115,5 +121,70 @@ class DomainPoolTest {
             DomainPool.rotate()
         }
         assertTrue("单次失败仍应在轮换中出现", host in seen)
+    }
+
+    /**
+     * 全量实测观察项：手填坏域名被自愈切走后没有任何用户可见说明。
+     * JmClient 一次失败就会 rotate 切走，手填域名等不到「连续 2 次」阈值——
+     * 提醒必须挂在首次失败上，且同一故障只弹一次。
+     */
+    @Test
+    fun `手填域名首次失败即发出切换提醒且不重复`() = runTest {
+        // DataStore 依赖 Android Context：单测注入 resolver 替身
+        DomainPool.manualHostResolver = { "bad.invalid" }
+        assertEquals("手填域名应位于候选首位", "bad.invalid", DomainPool.currentApiHost)
+        val events = mutableListOf<String>()
+        // UNDISPATCHED 先完成订阅：replay=0 的事件不会因订阅未就绪而丢
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            DomainPool.manualHostFailover.collect { events += it }
+        }
+        DomainPool.markBad("bad.invalid")
+        runCurrent()
+        assertEquals("首次失败就应提醒", listOf("bad.invalid"), events)
+        DomainPool.markBad("bad.invalid")
+        runCurrent()
+        assertEquals("同一故障只提醒一次（离线时各 host 会反复失败）", 1, events.size)
+        job.cancel()
+    }
+
+    @Test
+    fun `非手填域名失败不发出切换提醒`() = runTest {
+        DomainPool.manualHostResolver = { "manual.example" }
+        assertEquals("manual.example", DomainPool.currentApiHost)
+        val received = CompletableDeferred<String>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            DomainPool.manualHostFailover.collect { received.complete(it) }
+        }
+        // 内置镜像失败两次：进入回避期但不触发手填切换提醒
+        repeat(2) { DomainPool.markBad(DomainPool.BUILTIN_API_HOSTS.first()) }
+        assertFalse("内置镜像失败与手填切换无关", received.isCompleted)
+        job.cancel()
+    }
+
+    /** 设置页「当前生效域名」依赖 hostVersion 实时刷新 */
+    @Test
+    fun `生效域名变化信号在换域与手填变更时自增`() {
+        val v0 = DomainPool.hostVersion.value
+        DomainPool.rotate()
+        assertTrue("rotate 换域必须广播版本", DomainPool.hostVersion.value > v0)
+        val v1 = DomainPool.hostVersion.value
+        DomainPool.manualHostResolver = { "manual.example" }
+        // currentApiHost 内部触发 refreshHostList：手填生效即候选表重建
+        DomainPool.currentApiHost
+        assertTrue("手填变更必须广播版本", DomainPool.hostVersion.value > v1)
+    }
+
+    @Test
+    fun `normalizeHost 规整手填输入`() {
+        assertEquals("www.a.cc", DomainPool.normalizeHost(" https://www.a.cc/ "))
+        assertEquals("www.b.cc", DomainPool.normalizeHost("http://www.b.cc"))
+        assertEquals("", DomainPool.normalizeHost("  "))
+    }
+
+    @Test
+    fun `resetForTest 还原手填 resolver`() {
+        DomainPool.manualHostResolver = { "manual.example" }
+        DomainPool.resetForTest()
+        assertEquals("复位后应回到内置镜像首位", DomainPool.BUILTIN_API_HOSTS.first(), DomainPool.currentApiHost)
     }
 }

@@ -160,14 +160,21 @@ fun SearchScreen(
         } else {
             null
         }
-        // I03：叉号只清空输入草稿；已提交查询与已选条件不受影响，旧结果不伪装成新查询
+        // P3-2：清空 = 回到初始态。此前叉号只清草稿文字，已提交查询与结果残留在
+        // 界面上（切 Tab 返回也一样），搜索历史入口不可达。现在把已提交 query/
+        // 结果一并置空（search("") 内部会取消在途请求并复位列表/分页状态），
+        // 空态条件命中后历史重新显示；排序/维度等偏好保留不重置。
+        fun clearQueryAndReset() {
+            input = ""
+            filterPage = 1
+            viewModel.search("", page = 1)
+            listState.requestScrollToItem(0)
+        }
         val showClearDraft = input.isNotBlank()
         val trailingIcon: @Composable (() -> Unit)? = if (showClearDraft) {
             {
-                IconButton(onClick = {
-                    input = ""
-                }) {
-                    Icon(Icons.Filled.Close, contentDescription = "清除输入文字")
+                IconButton(onClick = { clearQueryAndReset() }) {
+                    Icon(Icons.Filled.Close, contentDescription = "清空并返回搜索初始态")
                 }
             }
         } else {
@@ -175,7 +182,13 @@ fun SearchScreen(
         }
         OutlinedTextField(
             value = input,
-            onValueChange = { input = it },
+            onValueChange = {
+                input = it
+                // 逐字删空与叉号等价：结果/错误态不再残留，历史入口恢复
+                if (it.isBlank() && viewModel.keyword.value.isNotBlank()) {
+                    clearQueryAndReset()
+                }
+            },
             singleLine = true,
             // Material3 图标槽按 lambda 是否为 null 决定保留空间；
             // 这里再显式 start 对齐，保证占位/已输入文字始终靠左

@@ -1,6 +1,10 @@
 package com.jmread.core.netconfig
 
 import com.jmread.data.SourcePrefs
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * API 域名池：手填 > /setting 下发 > 内置镜像，失败即换。
@@ -43,7 +47,41 @@ object DomainPool {
     /** 上一次生效的手填域名（null/空 = 自动）。用于「清空手填后恢复自动线路」 */
     @Volatile private var lastManualHost: String? = null
 
+    /** 已提醒过切换的手填域名：同一故障不重复弹 Snackbar（离线时各 host 反复失败） */
+    @Volatile private var notifiedManualHost: String? = null
+
     @Volatile private var imgHosts: List<String> = BUILTIN_IMAGE_HOSTS
+
+    /** 默认手填域名读取：规整规则与候选表重建保持一致 */
+    private val defaultManualHostResolver: () -> String? = {
+        runCatching { SourcePrefs.current().jmBaseUrl }.getOrNull()
+            ?.let { normalizeHost(it) }
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    /** 去掉 scheme/尾斜杠，得到候选表使用的 host 形态（设置页标签比较也用它） */
+    fun normalizeHost(raw: String): String =
+        raw.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
+
+    /**
+     * 手填域名读取（含规整：去 scheme/尾斜杠、空白判空）。
+     * SourcePrefs 未初始化（JVM 单测 / 进程极早期）时返回 null。
+     * 抽成可替换的 resolver 是为了单测能注入手填值（DataStore 单例依赖 Android Context）。
+     */
+    internal var manualHostResolver: () -> String? = defaultManualHostResolver
+
+    /**
+     * 生效域名变化信号：rotate / 手填变更 / /setting 下发重建候选表时自增。
+     * 设置页「当前生效域名」用它保持实时，避免自愈切走后仍显示旧域名。
+     */
+    private val _hostVersion = MutableStateFlow(0)
+    val hostVersion: StateFlow<Int> = _hostVersion
+
+    /** 手填域名失败被打入回避期（即将被自动切走）时发出，负载为该手填域名。
+     *  MainScreen 订阅弹一次 Snackbar：自愈行为正确，但设置页的手填框仍留着坏域名，
+     *  不说明一句用户会以为坏域名还在生效（全量实测观察项）。 */
+    private val _manualHostFailover = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val manualHostFailover: SharedFlow<String> = _manualHostFailover
 
     /** 图片 CDN 的回避期表（与 API 的 badUntil 分开：图片走独立 CDN，故障互不相关） */
     @Volatile private var badImageUntil: Map<String, Long> = emptyMap()
@@ -123,6 +161,9 @@ object DomainPool {
      * 这里再转一次会跳过下一条可用线路。
      */
     fun markBad(host: String) {
+        // 手填域名首次失败即提醒：JmClient 失败后会立即 rotate 切走，
+        // 该域名在本次进程内不会再被尝试，等不到「连续 2 次」阈值
+        notifyManualFailoverIfNeeded(host)
         synchronized(this) {
             val next = (failCounts[host] ?: 0) + 1
             if (next >= FAILS_BEFORE_SWITCH) {
@@ -132,6 +173,17 @@ object DomainPool {
                 failCounts = failCounts + (host to next)
             }
         }
+    }
+
+    /** 失败的 host 是当前手填域名时发一次提醒（见 [manualHostFailover]）。 */
+    private fun notifyManualFailoverIfNeeded(host: String) {
+        if (host != manualHostResolver()) return
+        synchronized(this) {
+            // 同一次故障只弹一次：全线路离线时各 host 会反复失败，避免刷屏
+            if (notifiedManualHost == host) return
+            notifiedManualHost = host
+        }
+        _manualHostFailover.tryEmit(host)
     }
 
     /** 立即切换到下一个可用 host（换域重试用）；跳过处于回避期的 host */
@@ -145,11 +197,13 @@ object DomainPool {
                 val idx = (currentIdx + step).mod(size)
                 if ((badUntil[apiHosts[idx]] ?: 0L) <= now) {
                     currentIdx = idx
+                    _hostVersion.value = _hostVersion.value + 1
                     return
                 }
             }
             // 所有 host 都在回避期：仍要前进一格当兜底，不能永远卡在同一个坏 host
             currentIdx = (currentIdx + 1).mod(size)
+            _hostVersion.value = _hostVersion.value + 1
         }
     }
 
@@ -163,12 +217,7 @@ object DomainPool {
                 val host = baseUrl.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
                 // 手填域名优先级最高；/setting 下发值插在手填之后（没有手填时才放首位）。
                 // 旧实现无条件把下发域名放首位，用户手填的域名会被悄悄顶掉。
-                val manual = runCatching { SourcePrefs.current().jmBaseUrl }.getOrNull()
-                    ?.trim()
-                    ?.removePrefix("https://")
-                    ?.removePrefix("http://")
-                    ?.trimEnd('/')
-                    ?.takeIf { it.isNotBlank() }
+                val manual = manualHostResolver()
                 apiHosts = if (manual != null) {
                     (listOf(manual, host) + apiHosts.filterNot { it == manual || it == host })
                         .distinct()
@@ -184,6 +233,7 @@ object DomainPool {
                     badUntil = badUntil - manual
                     failCounts = failCounts - manual
                 }
+                _hostVersion.value = _hostVersion.value + 1
             }
             if (!imgHost.isNullOrBlank()) {
                 val h = imgHost.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -202,6 +252,8 @@ object DomainPool {
             imgHosts = BUILTIN_IMAGE_HOSTS
             badImageUntil = emptyMap()
             lastManualHost = null
+            notifiedManualHost = null
+            manualHostResolver = defaultManualHostResolver
         }
     }
 
@@ -213,16 +265,13 @@ object DomainPool {
      * 这里记住上一次生效的手填值：变更时重建候选表，清空时回到内置镜像。
      */
     private fun refreshHostList() {
-        // SourcePrefs 未初始化时（JVM 单测 / 早期）跳过手填合并，用内置表
-        val manual = runCatching { SourcePrefs.current().jmBaseUrl }.getOrNull()
-            ?.trim()
-            ?.removePrefix("https://")
-            ?.removePrefix("http://")
-            ?.trimEnd('/')
-            ?.takeIf { it.isNotBlank() }
+        // SourcePrefs 未初始化时（JVM 单测 / 早期）resolver 返回 null，走内置表
+        val manual = manualHostResolver()
         if (manual == lastManualHost) return
         lastManualHost = manual
         synchronized(this) {
+            // 手填值变更 = 新一轮配置：允许对新值再次提醒
+            notifiedManualHost = null
             apiHosts = if (manual != null) {
                 listOf(manual) + BUILTIN_API_HOSTS
             } else {
@@ -236,6 +285,7 @@ object DomainPool {
                 failCounts = failCounts - manual
                 badUntil = badUntil - manual
             }
+            _hostVersion.value = _hostVersion.value + 1
         }
     }
 

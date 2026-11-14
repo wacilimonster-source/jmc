@@ -487,71 +487,74 @@ private fun RankTab(
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = loading,
-        onRefresh = onRefreshRank,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            // ── 榜单档位 ────────────────────────────────────────────────
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-            ) {
-                Text(
-                    text = "人气榜单",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "近期热门",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    // P3-1：标题行/档位 chips 放在下拉刷新容器之外——M3 指示器出现在内容区
+    // 顶部居中（圆心约 64dp 处），此前把两行头部包进来时正好压在 chips 上。
+    // 头部移出后指示器只落在网格区顶部，不再遮挡可点击的档位 chip。
+    Column(Modifier.fillMaxSize()) {
+        // ── 榜单档位 ────────────────────────────────────────────────
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+        ) {
+            Text(
+                text = "人气榜单",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "近期热门",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            rankTabs.forEach { tab ->
+                FilterChip(
+                    selected = rankType == tab.value,
+                    onClick = { onTypeChange(tab.value) },
+                    label = { Text(tab.label) },
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                rankTabs.forEach { tab ->
-                    FilterChip(
-                        selected = rankType == tab.value,
-                        onClick = { onTypeChange(tab.value) },
-                        label = { Text(tab.label) },
-                    )
-                }
-            }
+        }
 
-            // ── 精选入口已上移首页顶栏，榜单区不再挂「精选分区 ›」短入口 ──
+        // ── 精选入口已上移首页顶栏，榜单区不再挂「精选分区 ›」短入口 ──
 
-            val count = if (comics.isNotEmpty() && total > 0 && total != BROWSE_TOTAL_SENTINEL) total else null
-            if (count != null && count > 0) {
-                Text(
-                    text = "共 $count 部",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                )
-            }
-            if (cacheAt != null) {
-                InlineErrorBanner(
-                    message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}前的缓存",
-                    onRetry = onRefreshRank,
-                )
-            }
+        val count = if (comics.isNotEmpty() && total > 0 && total != BROWSE_TOTAL_SENTINEL) total else null
+        if (count != null && count > 0) {
+            Text(
+                text = "共 $count 部",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
+        if (cacheAt != null) {
+            InlineErrorBanner(
+                message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}前的缓存",
+                onRetry = onRefreshRank,
+            )
+        }
 
+        PullToRefreshBox(
+            isRefreshing = loading,
+            onRefresh = onRefreshRank,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 state = gridState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.H_GAP_DP.dp),
                 verticalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.V_GAP_DP.dp),

@@ -111,6 +111,14 @@ fun MainScreen() {
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
         .collectAsState(initial = true)
 
+    // 手填域名失败被自愈切走的提醒（全量实测观察项）：坏域名自动切到可用镜像后，
+    // 设置页手填框仍保留原值，不给一句说明用户会以为坏域名仍在生效
+    LaunchedEffect(Unit) {
+        com.jmread.core.netconfig.DomainPool.manualHostFailover.collect { host ->
+            AppSnackbar.hostState.showSnackbar("手动域名 $host 连接失败，已自动切换可用线路")
+        }
+    }
+
     val route = currentDestination?.route
     val hideBottomBar = hideBottomBarInReader &&
         fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
@@ -141,12 +149,19 @@ fun MainScreen() {
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                // 已在该 Tab（含其子页面）时，重复点击应回到 Tab 根页；
+                                // 否则 restoreState 会把刚保存的详情/子页原样恢复回来。
+                                val currentTab = activeTabRoute ?: lastTabRoute
+                                if (currentTab == tab.route) {
+                                    navController.popBackStack(tab.route, inclusive = false)
+                                } else {
+                                    navController.navigate(tab.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             },
                             icon = {

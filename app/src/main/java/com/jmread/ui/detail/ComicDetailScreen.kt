@@ -1,5 +1,11 @@
 package com.jmread.ui.detail
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -59,8 +66,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -69,6 +79,7 @@ import com.jmread.core.model.ComicComment
 import com.jmread.core.model.ComicDetail
 import com.jmread.core.model.ComicSummary
 import com.jmread.data.ChaptersReadDoc
+import com.jmread.data.DownloadPrefs
 import com.jmread.data.ReaderPrefs
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
@@ -111,8 +122,65 @@ fun ComicDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // 下载完成通知在 Android 13+ 需要运行时权限。此前只在设置页手动开关时申请，
+    // 而开关默认是开着的，新装用户永远不会收到通知；这里在真正发起下载时补一次申请。
+    val context = LocalContext.current
+    var pendingDownload by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            // 与设置页行为一致：拒绝后关闭开关，避免每次下载都弹系统框
+            scope.launch { DownloadPrefs.setNotifyEnabled(false) }
+        }
+        val action = pendingDownload
+        pendingDownload = null
+        action?.invoke()
+    }
+    fun runWithNotificationPermission(action: () -> Unit) {
+        val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+            DownloadPrefs.notifyEnabled &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            pendingDownload = action
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            action()
+        }
+    }
+
     // 单源 App：路由参数即漫画 id
     val comicId = ref
+
+    // P3-4：横屏首屏高度有限（约 350dp），主操作按钮原独立 item 会被压到折叠线以下。
+    // 横屏时把操作区并入封面右侧信息列（左封面右信息+按钮）；竖屏保持原有独立操作区。
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val narrowLayout = configuration.screenWidthDp < 360 ||
+        androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f
+    val onRead: () -> Unit = {
+        val target = lastProgress?.order ?: chapters.firstOrNull()?.order
+        if (target != null) onOpenReader(ref, target)
+    }
+    val onDownloadAll: () -> Unit = {
+        runWithNotificationPermission { viewModel.downloadAll(comicId, comic, chapters) }
+    }
+    val detailActions: @Composable () -> Unit = {
+        DetailActions(
+            hasProgress = lastProgress != null,
+            progressLabel = lastProgress?.let { "上次阅读到 第${it.order}话 · 第${it.pageIndex + 1}页" },
+            chaptersEnabled = chapters.isNotEmpty(),
+            narrowLayout = narrowLayout,
+            chaptersError = chaptersError,
+            maxWidth = if (landscape) 420.dp else null,
+            onRead = onRead,
+            onDownloadAll = onDownloadAll,
+            onRetryChapters = { viewModel.retryChapters(comicId) },
+        )
+    }
 
     LaunchedEffect(ref) {
         viewModel.load(ref)
@@ -164,7 +232,13 @@ fun ComicDetailScreen(
             val c = comic
             if (c != null) {
                 item {
-                    ComicHeader(comic = c, favourited = favourited, onOpenAuthor = onOpenAuthor)
+                    // P3-4：横屏时主操作按钮直接挂在封面右侧信息列末尾，首屏完整可见
+                    ComicHeader(
+                        comic = c,
+                        favourited = favourited,
+                        onOpenAuthor = onOpenAuthor,
+                        actions = if (landscape) detailActions else null,
+                    )
                 }
                 if (c.isPaid) {
                     // 付费本（price 非空）：透明提示，不静默给空白页
@@ -185,93 +259,12 @@ fun ComicDetailScreen(
                         }
                     }
                 }
-                item {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        // I12：宽屏同排；窄屏/大字改主按钮整行、次按钮另排，避免横向拥挤
-                        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-                        val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
-                        val narrowLayout = configuration.screenWidthDp < 360 || fontScale > 1.3f
-                        val onRead: () -> Unit = {
-                            val target = lastProgress?.order ?: chapters.firstOrNull()?.order
-                            if (target != null) onOpenReader(ref, target)
-                        }
-                        if (narrowLayout) {
-                            Button(
-                                onClick = onRead,
-                                enabled = chapters.isNotEmpty(),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { viewModel.downloadAll(comicId, comic, chapters) },
-                                enabled = chapters.isNotEmpty(),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            {
-                                Icon(
-                                    Icons.Filled.Download,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text("下载整本")
-                            }
-                        } else {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Button(
-                                    onClick = onRead,
-                                    enabled = chapters.isNotEmpty(),
-                                    modifier = Modifier.weight(1f),
-                                )
-                                { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
-                                OutlinedButton(
-                                    onClick = { viewModel.downloadAll(comicId, comic, chapters) },
-                                    enabled = chapters.isNotEmpty(),
-                                )
-                                {
-                                    Icon(
-                                        Icons.Filled.Download,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("下载整本")
-                                }
-                            }
-                        }
-                        if (lastProgress != null) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "上次阅读到 第${lastProgress!!.order}话 · 第${lastProgress!!.pageIndex + 1}页",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // 章节加载失败必须可见：否则章节恒空时"开始阅读/下载整本"
-                        // 永久禁用且没有任何失败线索（此前 catch 空处理吞掉了错误）
-                        if (chaptersError != null) {
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "章节加载失败：$chaptersError",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = "重试",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .padding(start = 8.dp)
-                                        .clickable { viewModel.retryChapters(comicId) },
-                                )
-                            }
+                if (!landscape) {
+                    item {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            detailActions()
                         }
                     }
                 }
@@ -408,7 +401,11 @@ fun ComicDetailScreen(
                     ChapterRow(
                         chapter = chapter,
                         onClick = { onOpenReader(ref, chapter.order) },
-                        onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
+                        onDownload = {
+                            runWithNotificationPermission {
+                                viewModel.downloadChapter(comicId, comic, chapter)
+                            }
+                        },
                         downloaded = chapter.order in downloadedOrders,
                         read = read,
                     )
@@ -781,8 +778,113 @@ private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
     }
 }
 
+/**
+ * 详情主操作区（P3-4 从竖屏专用 item 抽出，横竖屏共用）：
+ * 继续阅读/下载整本 + 上次进度 + 章节失败重试。
+ * [narrowLayout]：窄屏/大字体时主按钮整行、次按钮另排，避免横向拥挤（I12）；
+ * [maxWidth]：操作区宽度上限，横屏挂在封面右侧时防主按钮被拉伸过宽。
+ */
 @Composable
-private fun ComicHeader(comic: ComicDetail, favourited: Boolean, onOpenAuthor: (String) -> Unit) {
+private fun DetailActions(
+    hasProgress: Boolean,
+    progressLabel: String?,
+    chaptersEnabled: Boolean,
+    narrowLayout: Boolean,
+    chaptersError: String?,
+    maxWidth: Dp?,
+    onRead: () -> Unit,
+    onDownloadAll: () -> Unit,
+    onRetryChapters: () -> Unit,
+) {
+    Column(
+        modifier = if (maxWidth != null) Modifier.widthIn(max = maxWidth) else Modifier,
+    ) {
+        if (narrowLayout) {
+            Button(
+                onClick = onRead,
+                enabled = chaptersEnabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            { Text(if (hasProgress) "继续阅读" else "开始阅读") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onDownloadAll,
+                enabled = chaptersEnabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("下载整本")
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = onRead,
+                    enabled = chaptersEnabled,
+                    modifier = Modifier.weight(1f),
+                )
+                { Text(if (hasProgress) "继续阅读" else "开始阅读") }
+                OutlinedButton(
+                    onClick = onDownloadAll,
+                    enabled = chaptersEnabled,
+                )
+                {
+                    Icon(
+                        Icons.Filled.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("下载整本")
+                }
+            }
+        }
+        if (hasProgress && progressLabel != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = progressLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // 章节加载失败必须可见：否则章节恒空时"开始阅读/下载整本"
+        // 永久禁用且没有任何失败线索（此前 catch 空处理吞掉了错误）
+        if (chaptersError != null) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "章节加载失败：$chaptersError",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "重试",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clickable(onClick = onRetryChapters),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComicHeader(
+    comic: ComicDetail,
+    favourited: Boolean,
+    onOpenAuthor: (String) -> Unit,
+    actions: (@Composable () -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -866,6 +968,11 @@ private fun ComicHeader(comic: ComicDetail, favourited: Boolean, onOpenAuthor: (
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+            // P3-4：横屏时主操作区挂在信息列末尾（竖屏传 null 不渲染）
+            if (actions != null) {
+                Spacer(Modifier.height(10.dp))
+                actions()
+            }
         }
     }
 }

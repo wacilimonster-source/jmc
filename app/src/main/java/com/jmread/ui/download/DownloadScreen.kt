@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -461,7 +460,14 @@ private fun ComicGroupCard(
                 tasks.sortedBy { it.task.order }.forEach { runtime ->
                     DownloadTaskRow(
                         runtime = runtime,
-                        onClick = { onChapterClick(runtime.task.order) },
+                        // P3-3：失败态整行点击 = 重试（此前点击无响应，只能依赖小图标）
+                        onClick = {
+                            if (runtime.status == DlStatus.FAILED) {
+                                onRetry(runtime.key)
+                            } else {
+                                onChapterClick(runtime.task.order)
+                            }
+                        },
                         onRetry = { onRetry(runtime.key) },
                         onDelete = { onDelete(runtime.key) },
                         deleteEnabled = deleteEnabled,
@@ -580,13 +586,9 @@ private fun DownloadTaskRow(
             }
         }
         if (runtime.status == DlStatus.FAILED) {
-            IconButton(onClick = onRetry) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "重试",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            // P3-3：失败行的重试入口此前是纯刷新图标，实测反馈「没有明显的重试入口」；
+            // 改为带文字的按钮，并让整行点击也触发重试（见 ComicGroupCard 调用处）
+            TextButton(onClick = onRetry) { Text("重试") }
         }
         IconButton(onClick = onDelete, enabled = deleteEnabled) {
             Icon(

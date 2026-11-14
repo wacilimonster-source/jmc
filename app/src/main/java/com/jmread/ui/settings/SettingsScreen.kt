@@ -216,7 +216,8 @@ fun SettingsScreen(
                     ListItem(
                         headlineContent = { Text("作品列表每行数量") },
                         supportingContent = {
-                            Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效")
+                            Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效。" +
+                                "大字体（130%+）时建议选 2 个，避免标题过早截断")
                         },
                     )
                     SingleChoiceSegmentedButtonRow(
@@ -316,6 +317,10 @@ private fun ConnectionDiagnosticsSection(onOpenLog: () -> Unit) {
     val scope = rememberCoroutineScope()
     var manualHost by remember { mutableStateOf(SourcePrefs.current().jmBaseUrl.orEmpty()) }
     var currentHost by remember { mutableStateOf(DomainPool.currentApiHost) }
+    // P3 观察：自愈把坏域名切走后，本页仍显示旧域名且「（手动）」标签误导。
+    // 订阅 DomainPool.hostVersion 让生效域名在本页停留期间也能实时刷新。
+    val hostVersion by DomainPool.hostVersion.collectAsState()
+    LaunchedEffect(hostVersion) { currentHost = DomainPool.currentApiHost }
     var advanced by remember { mutableStateOf(false) }
 
     SettingsGroup(
@@ -323,7 +328,7 @@ private fun ConnectionDiagnosticsSection(onOpenLog: () -> Unit) {
         supporting = if (manualHost.isBlank()) {
             "自动选择线路：内置镜像 + 服务端下发，失败自动切换"
         } else {
-            "手动指定线路：${DomainPool.currentApiHost}"
+            "手动指定线路：$currentHost"
         },
     ) {
         // 阻断性故障不折叠：TLS 协议栈是图片/接口可用的前提
@@ -336,7 +341,17 @@ private fun ConnectionDiagnosticsSection(onOpenLog: () -> Unit) {
         }
         ListItem(
             headlineContent = { Text("当前生效域名") },
-            supportingContent = { Text(if (manualHost.isBlank()) "$currentHost（自动）" else "$currentHost（手动）") },
+            supportingContent = {
+                Text(
+                    when {
+                        manualHost.isBlank() -> "$currentHost（自动）"
+                        // P3 观察：手填坏域名被自愈切走后仍标「（手动）」会让人误以为
+                        // 坏域名还在生效；明确标注已切换（全局另有 Snackbar 提醒）
+                        currentHost == DomainPool.normalizeHost(manualHost) -> "$currentHost（手动）"
+                        else -> "$currentHost（手动域名不可用，已自动切换）"
+                    }
+                )
+            },
             trailingContent = {
                 TextButton(onClick = { advanced = !advanced }) {
                     Text(if (advanced) "收起高级" else "高级")
