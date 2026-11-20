@@ -39,6 +39,7 @@ private object ReaderKeys {
     const val VOLUME_KEY_PAGING = "volume_key_paging"
     const val CHAPTER_LIST_DESC = "chapter_list_desc"
     const val READER_GUIDE_SHOWN = "reader_guide_shown"
+    const val WEBTOON_HINT_DISMISSED = "webtoon_hint_dismissed"
 }
 
 /** 最近阅读条目（首页"继续阅读"用） */
@@ -636,6 +637,17 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     suspend fun setReaderGuideShown(shown: Boolean) {
         appContext.readerDataStore.edit {
             it[booleanPreferencesKey(ReaderKeys.READER_GUIDE_SHOWN)] = shown
+        }
+    }
+
+    /** 条漫横滑黑边提示：忽略/切换后一次性关闭（0.7.3 遗留观察项） */
+    val webtoonHintDismissed: Flow<Boolean> = appContext.readerDataStore.data
+        .map { it[booleanPreferencesKey(ReaderKeys.WEBTOON_HINT_DISMISSED)] ?: false }
+        .distinctUntilChanged()
+
+    suspend fun setWebtoonHintDismissed(dismissed: Boolean) {
+        appContext.readerDataStore.edit {
+            it[booleanPreferencesKey(ReaderKeys.WEBTOON_HINT_DISMISSED)] = dismissed
         }
     }
 

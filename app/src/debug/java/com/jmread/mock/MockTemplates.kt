@@ -93,6 +93,11 @@ object MockTemplates {
             data.forEach { (k, v) -> put(k, v) }
             put("id", JsonPrimitive(aid))
             put("name", JsonPrimitive("模拟作品 #$albumId"))
+            // 复合署名样本（含角色括号）：验证作者选择层与片段切换
+            put("author", JsonArray(listOf(
+                JsonPrimitive("模拟作者甲"),
+                JsonPrimitive("模拟作者乙（翻译：模拟丙）"),
+            )))
             val series = (data["series"] as? JsonArray) ?: JsonArray(emptyList())
             put("series", JsonArray(series.mapIndexed { i, el ->
                 val obj = el as? JsonObject ?: el
@@ -106,13 +111,23 @@ object MockTemplates {
         return encode(root, newData)
     }
 
-    /** 章节：id 对齐请求的 photoId；图片保持文件名列表（URL 由 JmCrypto 按禁漫规则拼装） */
+    /** mock 图片代数：改 mock 尺寸/形态时递增，令 Coil 缓存键整体失效（文件名进 URL） */
+    private const val IMAGE_GEN = "g2"
+
+    /** 章节：id 对齐请求的 photoId；图片文件名加代数前缀（URL 随代数变化，规避旧字节缓存） */
     fun renderChapter(fixtureText: String, photoId: String): String {
         val root = json.parseToJsonElement(fixtureText).jsonObject
         val data = dataOf(root)
         val newData = buildJsonObject {
             data.forEach { (k, v) -> put(k, v) }
             put("id", JsonPrimitive(photoId))
+            val images = data["images"] as? JsonArray
+            if (images != null) {
+                put("images", JsonArray(images.map { el ->
+                    val name = (el as? JsonPrimitive)?.contentOrNull ?: return@map el
+                    JsonPrimitive("$IMAGE_GEN$name")
+                }))
+            }
         }
         return encode(root, newData)
     }

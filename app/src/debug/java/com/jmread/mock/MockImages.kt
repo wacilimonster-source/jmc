@@ -75,13 +75,13 @@ object MockImages {
         return encode(bmp)
     }
 
-    /** 章节图：纯平滑渐变（无文字、无硬边，规避缝隙误判） */
+    /** 章节图：长条比例 3:10（纯平滑渐变，无文字/硬边，规避缝隙误判），模拟真实条漫形态 */
     private fun photoBytes(url: String): ByteArray {
         // URL 形如 https://host/media/photos/{photoId}/{filename}
         val page = url.substringAfterLast('/').substringBefore('.').toIntOrNull() ?: 1
         val id = url.substringAfter("/media/photos/").substringBefore('/')
-        val w = 720
-        val h = 1080
+        val w = 600
+        val h = 2000
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val c1 = colorFrom(id, page)

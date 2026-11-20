@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -36,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -207,6 +209,10 @@ fun ReaderScreen(
     // PERF：捏合期间每帧都会改 zoomScale，但 pager 只关心「是否可翻页」这个布尔——
     // 用 derivedStateOf 把高频 Float 变化收敛成布尔翻转，避免整条 pager 分支每帧重组
     val pagerScrollEnabled = remember { derivedStateOf { zoomScale <= 1f } }
+    // 条漫横滑黑边提示（0.7.3 遗留观察项，对标 PiKA 一次性引导模式）：检测到 + 未全局忽略
+    var webtoonHintDetected by remember { mutableStateOf(false) }
+    val webtoonHintDismissed by ReaderPrefs.current().webtoonHintDismissed
+        .collectAsStateWithLifecycle(initialValue = true)
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
@@ -879,6 +885,13 @@ fun ReaderScreen(
                                 pageKey = "$ref:$vmOrder:$page:${displayUrl(page)}",
                                 onLoaded = { loadedPages[page] = true },
                                 onError = { loadedPages.remove(page) },
+                                // 条漫判定：长图（h/w>2.2）即置位检测标记；
+                                // 是否展示由横幅条件（detected && !dismissed）决定——
+                                // dismissed 初值 true（DataStore 未就绪），若在这里提前排除，
+                                // DataStore 稍后发出 false 时检测标记已错过，提示永远不出现
+                                onImageRatio = { ratio ->
+                                    if (ratio > 2.2f) webtoonHintDetected = true
+                                },
                             )
                         } else {
                             ReaderEndCard(
@@ -896,6 +909,34 @@ fun ReaderScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
+                    }
+
+                    // 翻页页码小标（对标 PiKA v1.11.1-5：右上角 X / N 半透明底）
+                    if (pages.isNotEmpty()) {
+                        PagerPageBadge(pagerState = pagerState, total = pages.size)
+                    }
+
+                    // 条漫横滑黑边提示：检测到长图且未忽略时出现（一次性，忽略/切换后全局关闭）
+                    if (webtoonHintDetected && !webtoonHintDismissed) {
+                        WebtoonHintBanner(
+                            onSwitch = {
+                                webtoonHintDetected = false
+                                // 与面板「切换模式」同路径：本地 scrollMode 状态必须同步切换，
+                                // 仅写 pref 不会改变当前渲染模式（pref 供下次进入时恢复）
+                                val target = currentPage
+                                scrollMode = true
+                                zoomScale = 1f
+                                panX = 0f
+                                panY = 0f
+                                ReaderPrefs.current().readerMode = 0
+                                scope.launch { listState.scrollToItem(rowForPage(target)) }
+                            },
+                            onDismiss = {
+                                webtoonHintDetected = false
+                                scope.launch { ReaderPrefs.current().setWebtoonHintDismissed(true) }
+                            },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
                     }
                 }
             }
@@ -1200,6 +1241,8 @@ private fun ReaderPage(
     pageKey: String,
     onLoaded: () -> Unit,
     onError: (Throwable?) -> Unit,
+    /** 图片加载成功后上报宽高比（h/w）——条漫横滑黑边提示的判定源 */
+    onImageRatio: ((Float) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // 重试计数随页身份重置；重试后缀放在 #m1/#m0 之前，不进入持久缓存身份
@@ -1226,7 +1269,21 @@ private fun ReaderPage(
     val state = painter.state
     LaunchedEffect(state) {
         when (val s = state) {
-            is AsyncImagePainter.State.Success -> onLoaded()
+            is AsyncImagePainter.State.Success -> {
+                onLoaded()
+                if (onImageRatio != null) {
+                    val drawable = (s.result as? coil.request.SuccessResult)?.drawable
+                    val w = drawable?.intrinsicWidth ?: 0
+                    val h = drawable?.intrinsicHeight ?: 0
+                    if (w > 0 && h > 0) {
+                        com.jmread.core.log.LogStore.log(
+                            "reader-hint", "I",
+                            "page=${pageIndex + 1} decoded ${w}x${h} ratio=${h.toFloat() / w}",
+                        )
+                        onImageRatio(h.toFloat() / w)
+                    }
+                }
+            }
             is AsyncImagePainter.State.Error -> {
                 val t = s.result.throwable
                 val host = runCatching { android.net.Uri.parse(imageUrl).host }.getOrNull()
@@ -1601,5 +1658,59 @@ private fun BrightnessScrim(alpha: () -> Float) {
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = a)),
         )
+    }
+}
+
+/**
+ * 翻页模式页码小标（对标 PiKA v1.11.1-5）：右上角「X / N」半透明底。
+ * 页码读取在叶子内完成，翻页不触发阅读器其它分支重组。
+ */
+@Composable
+private fun PagerPageBadge(pagerState: PagerState, total: Int) {
+    val current = pagerState.currentPage
+    Box(Modifier.fillMaxSize()) {
+        Text(
+            text = "${current + 1} / $total",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp)
+                .background(Color.Black.copy(alpha = 0.45f), MaterialTheme.shapes.small)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/**
+ * 条漫横滑黑边提示横幅（0.7.3 遗留观察项）：检测到长条图 + 横滑模式时出现，
+ * 「切换滚动流」即时切换，「忽略」全局一次性关闭。
+ */
+@Composable
+private fun WebtoonHintBanner(
+    onSwitch: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = MaterialTheme.shapes.large,
+        shadowElevation = 6.dp,
+        modifier = modifier.padding(16.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                text = "检测到长条漫：横滑翻页两侧会有黑边",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onSwitch) { Text("切换滚动流") }
+                TextButton(onClick = onDismiss) {
+                    Text("忽略", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }

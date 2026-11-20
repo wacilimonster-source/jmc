@@ -1,6 +1,6 @@
 {
-  "sha256": "273cb89270f46bec6cb1d9a7de8b2c82e50d13ae5dc21132a835110a68cce75b",
-  "version": "0.8.7",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.7.apk",
-  "notes": "JM Reader 0.8.7 反馈与操作打磨（对标 PiKA ux-polish·第 8/10 轮）：\n1. 下载进度条平滑推进：导出/整本/单任务三类进度不再跳档（300ms 动画）\n2. 关注关键词删除可撤销：删除后 10 秒内可一键恢复，误删不再心疼\n3. 撤销恢复逻辑固化 3 条 JVM 单测\n4. 单测门禁 221/221 + code-health OK；模拟器复测下载链路与删除反馈无回归"
+  "sha256": "be8af5b5c30d233c632a9e795086ddd60d231de8d9373596ee8e2f9eead8df12",
+  "version": "0.8.8",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.8.apk",
+  "notes": "JM Reader 0.8.8 阅读器深水区（对标 PiKA v1.11.1·第 9/10 轮）：\n1. 翻页模式新增右上角「X / N」页码小标（半透明底，随时知道看到第几页）\n2. 条漫横滑黑边提示闭环（0.7.3 遗留项）：翻页模式检测到长条漫时提示「建议切换滚动流」，一键切换或一次性忽略\n3. 提示的切换动作与阅读面板完全同路径（模式/缩放/进度同步）\n4. 单测门禁 221/221 + code-health OK；模拟器复测：小标显示/黑边检测/一键切换全链路通过"
 }
