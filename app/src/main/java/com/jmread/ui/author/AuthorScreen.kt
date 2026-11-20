@@ -56,6 +56,7 @@ import com.jmread.ui.browse.PaginationBar
 @Composable
 fun AuthorComicsScreen(
     author: String,
+    origin: String? = null,
     onBack: () -> Unit,
     onComicClick: (String) -> Unit = {},
     viewModel: AuthorViewModel = viewModel(),
@@ -68,6 +69,10 @@ fun AuthorComicsScreen(
     val status by viewModel.status.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val currentPage by viewModel.currentPage.collectAsState()
+    // 片段切换（对标 PiKA v1.10.0）：原署名解析片段 + 当前生效查询
+    val parsed by viewModel.parsed.collectAsState()
+    val currentQuery by viewModel.currentQuery.collectAsState()
+    val originVal by viewModel.origin.collectAsState()
     val listState = rememberLazyGridState()
     val supportedSorts = remember { JmCapabilities.supportedSorts }
 
@@ -81,7 +86,7 @@ fun AuthorComicsScreen(
     LaunchedEffect(Unit) {
         val restorePage = viewModel.consumeScrollRestorePage()
         if (restorePage == null) {
-            viewModel.loadComics(author, page = 1)
+            viewModel.loadComics(author, page = 1, originHint = origin)
         }
         if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
@@ -97,8 +102,9 @@ fun AuthorComicsScreen(
 
     // 组合期不读盘：初值 false，LaunchedEffect 中查询
     var favourited by remember { mutableStateOf(false) }
-    LaunchedEffect(author) {
-        favourited = com.jmread.data.AuthorFavourites.contains(author)
+    // 片段切换后收藏态跟随当前浏览署名（片段即身份，PiKA v1.10.0）
+    LaunchedEffect(currentQuery) {
+        favourited = com.jmread.data.AuthorFavourites.contains(currentQuery.ifBlank { author })
     }
 
     // 复制反馈（对标 PiKA v1.12.0：作者页复制图标 + 标题长按，Snackbar 统一反馈）
@@ -106,7 +112,8 @@ fun AuthorComicsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val copyContext = LocalContext.current
     fun copyAuthorName() {
-        copyScope.launch { snackbarHostState.showSnackbar(copyToClipboard(copyContext, "作者名", author)) }
+        val name = currentQuery.ifBlank { author }
+        copyScope.launch { snackbarHostState.showSnackbar(copyToClipboard(copyContext, "作者名", name)) }
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -114,7 +121,8 @@ fun AuthorComicsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        author,
+                        // 片段切换后标题跟随当前浏览署名（PiKA v1.10.0：作者页内原地换人）
+                        currentQuery.ifBlank { author },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { copyAuthorName() }),
@@ -130,11 +138,13 @@ fun AuthorComicsScreen(
                         Icon(Icons.Filled.ContentCopy, contentDescription = "复制作者名")
                     }
                     IconButton(onClick = {
+                        // 片段即身份：收藏/取消收藏以当前浏览的署名（片段）为准
+                        val favKey = currentQuery.ifBlank { author }
                         if (favourited) {
-                            com.jmread.data.AuthorFavourites.remove(author)
+                            com.jmread.data.AuthorFavourites.remove(favKey)
                         } else {
                             com.jmread.data.AuthorFavourites.add(
-                                author = author,
+                                author = favKey,
                                 coverUrl = comics.firstOrNull()?.coverUrl.orEmpty(),
                             )
                         }
@@ -160,6 +170,41 @@ fun AuthorComicsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            // 片段切换条（对标 PiKA v1.10.0）：点片段即按该片段重搜，选错可原地换人
+            if ((parsed?.segments?.size ?: 0) > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val segments = parsed?.segments.orEmpty()
+                    items(segments.size + 1, key = { "seg-$it" }) { idx ->
+                        val isFull = idx == segments.size
+                        val segText = if (isFull) author else segments[idx].text
+                        val segLabel = if (isFull) {
+                            "完整署名"
+                        } else {
+                            val role = segments[idx].role
+                            if (role == com.jmread.core.model.AuthorRole.UNKNOWN) segText else "${role.label}·${segText}"
+                        }
+                        FilterChip(
+                            selected = segText == currentQuery,
+                            onClick = {
+                                viewModel.switchAuthor(segText)
+                                listState.requestScrollToItem(0)
+                            },
+                            label = { Text(segLabel, maxLines = 1) },
+                        )
+                    }
+                }
+                if (currentQuery.isNotBlank() && currentQuery != originVal) {
+                    Text(
+                        text = "原署名：$originVal",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

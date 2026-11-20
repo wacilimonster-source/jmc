@@ -98,6 +98,7 @@ fun ComicDetailScreen(
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
     onOpenAuthor: (String) -> Unit = {},
+    onOpenAuthorWithOrigin: (String, String) -> Unit = { seg, _ -> onOpenAuthor(seg) },
     onOpenTagSearch: (String) -> Unit = {},
     onComicClick: (String) -> Unit = {},
     viewModel: ComicDetailViewModel = viewModel(),
@@ -196,6 +197,18 @@ fun ComicDetailScreen(
         // 从阅读器返回时页面会被重新组合：顺手刷新「继续阅读」进度
         viewModel.refreshProgress()
     }
+    // 复合署名选择层（对标 PiKA v1.10.0）：解析出多片段时点击作者先弹层
+    var authorPickerOrigin by remember { mutableStateOf<String?>(null) }
+    authorPickerOrigin?.let { origin ->
+        com.jmread.ui.author.AuthorPickerSheet(
+            origin = origin,
+            onDismiss = { authorPickerOrigin = null },
+            onPick = { seg ->
+                authorPickerOrigin = null
+                onOpenAuthorWithOrigin(seg, origin)
+            },
+        )
+    }
     // ON_RESUME 兜底刷新（对标 PiKA v1.12.3-3）：无论组合是否重建，回到前台/返回详情
     // 都立即刷新本地进度，「继续阅读」按钮与上次读到的话/页保持实时
     DisposableEffect(lifecycleOwner) {
@@ -289,6 +302,13 @@ fun ComicDetailScreen(
                         onOpenAuthor = onOpenAuthor,
                         onCopyTitle = { scope.launch { snackbarHostState.showSnackbar(com.jmread.ui.common.copyToClipboard(context, "作品名", c.title)) } },
                         onCopyAuthor = { a -> scope.launch { snackbarHostState.showSnackbar(com.jmread.ui.common.copyToClipboard(context, "作者名", a)) } },
+                        onAuthorClick = { a ->
+                            if (com.jmread.core.model.AuthorName.parse(a).hasMultiple) {
+                                authorPickerOrigin = a
+                            } else {
+                                onOpenAuthor(a)
+                            }
+                        },
                         actions = if (landscape) detailActions else null,
                     )
                 }
@@ -937,6 +957,8 @@ private fun ComicHeader(
     onOpenAuthor: (String) -> Unit,
     onCopyTitle: () -> Unit = {},
     onCopyAuthor: (String) -> Unit = {},
+    /** 作者点按下沉：复合署名弹选择层、单一署名直达（选择层状态在调用方） */
+    onAuthorClick: (String) -> Unit = onOpenAuthor,
     actions: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -978,9 +1000,9 @@ private fun ComicHeader(
                             text = (if (i > 0) " / " else "") + a,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
-                            // 点按进作者页（语义不变）；长按复制该作者名
+                            // 点按进作者页（单一署名直达；复合署名先弹选择层）；长按复制该作者名
                             modifier = Modifier.combinedClickable(
-                                onClick = { onOpenAuthor(a) },
+                                onClick = { onAuthorClick(a) },
                                 onLongClick = { onCopyAuthor(a) },
                             ),
                         )

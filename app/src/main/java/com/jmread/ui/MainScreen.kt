@@ -415,6 +415,9 @@ fun MainScreen() {
                     onOpenAuthor = { author ->
                         navController.navigate("author/${Uri.encode(author)}")
                     },
+                    onOpenAuthorWithOrigin = { seg, origin ->
+                        navController.navigate("author/${Uri.encode(seg)}?origin=${Uri.encode(origin)}")
+                    },
                     onOpenTagSearch = { tag ->
                         navController.navigate("search?keyword=${Uri.encode(tag)}")
                     },
@@ -426,14 +429,19 @@ fun MainScreen() {
                 )
             }
             composable(
-                "author/{author}",
+                // origin=可选：详情页复合署名选择层带原署名进来，作者页据此渲染片段切换条
+                // （对标 PiKA v1.10.0 author/{query}?origin={origin}，旧路由完全兼容）
+                "author/{author}?origin={origin}",
                 arguments = listOf(
                     navArgument("author") { type = NavType.StringType },
+                    navArgument("origin") { type = NavType.StringType; nullable = true; defaultValue = null },
                 ),
             ) { entry ->
                 val author = entry.arguments?.getString("author") ?: return@composable
+                val origin = entry.arguments?.getString("origin")
                 AuthorComicsScreen(
                     author = author,
+                    origin = origin,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))

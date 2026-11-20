@@ -4,13 +4,16 @@ import com.jmread.core.model.userMessage
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jmread.core.model.AuthorName
 import com.jmread.core.model.ComicSort
 import com.jmread.core.model.ComicStatus
 import com.jmread.core.model.ComicSummary
+import com.jmread.core.model.ParsedAuthor
 import com.jmread.core.JmRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -42,6 +45,26 @@ class AuthorViewModel : ViewModel() {
 
     private var _author: String = ""
 
+    /** 原始署名（路由参数，展示/兜底用；片段搜索不改变它） */
+    private val _origin = MutableStateFlow("")
+    val origin: StateFlow<String> = _origin.asStateFlow()
+
+    /** 当前生效查询（片段或完整署名；收藏/复制以它为准 —— 对标 PiKA v1.10.0「片段即身份」） */
+    private val _currentQuery = MutableStateFlow("")
+    val currentQuery: StateFlow<String> = _currentQuery.asStateFlow()
+
+    /** 原署名的解析片段（作者页顶部切换条数据源） */
+    private val _parsed = MutableStateFlow<ParsedAuthor?>(null)
+    val parsed: StateFlow<ParsedAuthor?> = _parsed.asStateFlow()
+
+    /** 切换到某个署名片段（或完整署名）重新搜索；origin 保持不变（片段条始终基于原署名） */
+    fun switchAuthor(query: String) {
+        if (query == _currentQuery.value) return
+        _currentQuery.value = query
+        _needsScrollRestore = false
+        loadComics(query, page = 1, originHint = _origin.value)
+    }
+
     /** 用于列表滚动位置恢复 */
     private var _savedFirstVisibleIndex: Int = 0
     val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
@@ -55,8 +78,17 @@ class AuthorViewModel : ViewModel() {
 
     private var loadJob: Job? = null
 
-    fun loadComics(author: String, page: Int) {
+    fun loadComics(author: String, page: Int, originHint: String? = null) {
         _author = author
+        if (page == 1 && _currentQuery.value != author) {
+            _currentQuery.value = author
+        }
+        // origin 优先：片段切换条始终基于原署名解析（PiKA v1.10.0 author/{query}?origin={origin}）
+        val effectiveOrigin = originHint?.takeIf { it.isNotBlank() } ?: author
+        if (_origin.value != effectiveOrigin) {
+            _origin.value = effectiveOrigin
+            _parsed.value = AuthorName.parse(effectiveOrigin)
+        }
         loadJob?.cancel()
         _loading.value = true
         _error.value = null
