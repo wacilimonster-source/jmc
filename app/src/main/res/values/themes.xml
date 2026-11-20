@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 系统级闪屏（core-splashscreen 兼容 API 26-35）：品牌深紫底 + 应用图标，冷启动到
+         Compose 首帧前不再是纯白窗口；退场后切回 Theme.JMRead -->
+    <style name="Theme.JMRead.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">200</item>
+        <item name="postSplashScreenTheme">@style/Theme.JMRead</item>
+    </style>
     <style name="Theme.JMRead" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

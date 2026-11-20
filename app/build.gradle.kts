@@ -13,8 +13,8 @@ android {
         applicationId = "com.jmread"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "0.8.4"
+        versionCode = 29
+        versionName = "0.8.5"
     }
 
     signingConfigs {
@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

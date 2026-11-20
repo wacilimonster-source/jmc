@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.jmread.ui.MainScreen
 import com.jmread.ui.theme.PiKATextTheme
 import com.jmread.ui.theme.PiKATheme
@@ -22,6 +23,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 系统级闪屏退场（PERF：冷启动到首帧前有品牌底色占位，不再是纯白窗口）
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         installCrashLogger()
         handleIntent(intent)

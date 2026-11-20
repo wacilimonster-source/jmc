@@ -1,6 +1,6 @@
 {
-  "sha256": "a9fd7975ed6038eccdd3fdb3c64552cf043bca9b5933f0c2e38aca97ebc1b902",
-  "version": "0.8.4",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.4.apk",
-  "notes": "JM Reader 0.8.4 性能优化（对标 PiKA perf-architecture·第 5/10 轮）：\n1. 全部界面状态收集改为生命周期感知（151 处 collectAsStateWithLifecycle）：后台驻留时不再持续刷新，省电省 CPU\n2. 阅读器捏合缩放期间不再每帧重组整个翻页分支（derivedStateOf 布尔门控）\n3. 亮度蒙层拆分为独立叶子组件：拖动亮度滑条不再触发阅读器内容重组\n4. 全站网格列表补充 contentType，卡片与页脚复用更精准\n5. 单测门禁 218/218；模拟器全链路复测无回归（冷启动/阅读器亮度/翻页/网格）"
+  "sha256": "910909f8954c79b0fc0c843bc1b0a053a42b307732071d6d1d1f8e44a5fe4949",
+  "version": "0.8.5",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.5.apk",
+  "notes": "JM Reader 0.8.5 性能优化（对标 PiKA perf-architecture·第 6/10 轮）：\n1. 新增系统级闪屏：冷启动到首帧前显示品牌深紫底色与应用图标，不再是纯白窗口（兼容 Android 8-15）\n2. 阅读历史写盘收敛：连续翻页时阅读历史落盘从 1 次/秒合并为最多 1 次/4 秒，退出阅读器仍立即落盘\n3. 阅读续读位置不受影响（final 直写路径保持）\n4. 单测门禁 218/218；模拟器复测启动/阅读/退出全链路无回归"
 }
