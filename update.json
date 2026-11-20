@@ -1,6 +1,6 @@
 {
-  "sha256": "be8af5b5c30d233c632a9e795086ddd60d231de8d9373596ee8e2f9eead8df12",
-  "version": "0.8.8",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.8.apk",
-  "notes": "JM Reader 0.8.8 阅读器深水区（对标 PiKA v1.11.1·第 9/10 轮）：\n1. 翻页模式新增右上角「X / N」页码小标（半透明底，随时知道看到第几页）\n2. 条漫横滑黑边提示闭环（0.7.3 遗留项）：翻页模式检测到长条漫时提示「建议切换滚动流」，一键切换或一次性忽略\n3. 提示的切换动作与阅读面板完全同路径（模式/缩放/进度同步）\n4. 单测门禁 221/221 + code-health OK；模拟器复测：小标显示/黑边检测/一键切换全链路通过"
+  "sha256": "91df3059d28754dd9a7adbec526c2182f3c2a70664f9fde7c15c347a70c9583c",
+  "version": "0.9.0",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.9.0.apk",
+  "notes": "JM Reader 0.9.0 —— PiKA 对标十轮优化收口版：\n本版收束 0.8.0→0.8.8 九轮对标优化的全部成果，并完成发版工程化：\n1. 新增 tools/release-check.mjs 发版自检：版本号/APK/sha256/apkUrl/notes/代码健康度/单测七项自动校验\n2. 十轮全量回归通过：冷启动/榜单/搜索/详情/阅读器双模式/条漫切片/下载/书架/设置全链路（模拟数据）\n3. 累计成果：模拟数据复测基建+故障注入、错误文案映射与三态、详情交互对齐（复制/续读刷新/封面重试）、作者署名解析与片段搜索、性能两轮（生命周期感知/重组热点/闪屏/写放大）、工程门禁（AGENTS.md+code-health）、反馈打磨（进度平滑/删除撤销）、阅读器深水区（页码小标/条漫黑边提示）\n4. 单测 188→221 条全绿；code-health 结构指标入基线门禁；每轮复测报告见 reports/r1…r10-*-test.md"
 }
