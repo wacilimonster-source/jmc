@@ -1,5 +1,14 @@
 package com.jmread.ui.follow
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+
+import com.jmread.ui.common.AppSnackbar
+
+import androidx.compose.material3.SnackbarResult
+
+import androidx.compose.material3.SnackbarDuration
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +67,7 @@ fun FollowManageScreen(
 ) {
     // 组合期不读盘：初值空，LaunchedEffect 中在 IO 线程加载
     var items by remember { mutableStateOf<List<FollowItem>>(emptyList()) }
+    val scope = rememberCoroutineScope()
     var showKeywordDialog by remember { mutableStateOf(false) }
 
     fun reload() {
@@ -102,9 +112,24 @@ fun FollowManageScreen(
                 FollowRow(
                     name = item.keywords.joinToString(" + ") + (item.tag?.let { "  [$it]" } ?: ""),
                     onDelete = {
-                        FollowSettings.removeItem(item)
+                        // 对标 PiKA Q11：删除可撤销——快照后 Snackbar「撤销」整条恢复
+                        val snapshot = item
+                        val name = snapshot.keywords.joinToString(" + ")
+                        FollowSettings.removeItem(snapshot)
                         com.jmread.data.FollowFeedCache.clear()
                         reload()
+                        scope.launch {
+                            val result = AppSnackbar.hostState.showSnackbar(
+                                message = "已删除关注「$name」",
+                                actionLabel = "撤销",
+                                duration = SnackbarDuration.Long,
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                FollowSettings.addItem(snapshot.keywords, snapshot.tag)
+                                com.jmread.data.FollowFeedCache.clear()
+                                reload()
+                            }
+                        }
                     },
                 )
             }

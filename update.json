@@ -1,6 +1,6 @@
 {
-  "sha256": "6ecb309a6c2d8383f4ea2c8d87671601d10b0182f69c51cf3a7cca81174d45c8",
-  "version": "0.8.6",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.6.apk",
-  "notes": "JM Reader 0.8.6 工程门禁（对标 PiKA AGENTS/code-health·第 7/10 轮）：\n1. 新增 AGENTS.md 工程守则与 tools/code-health.py 结构健康度门禁（9 项指标 + 基线回归检查）\n2. 全限定名收敛 90→59 行（17 文件高频模式转 import）\n3. 清理 fork 残留：core/source 空目录、过时 SourceManager 注释、更新包文件名 pika-update→jm-update\n4. 一次性补丁脚本归位 tools/oneoff/\n5. 单测门禁 218/218 + code-health OK；模拟器冷启动冒烟无回归"
+  "sha256": "273cb89270f46bec6cb1d9a7de8b2c82e50d13ae5dc21132a835110a68cce75b",
+  "version": "0.8.7",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.7.apk",
+  "notes": "JM Reader 0.8.7 反馈与操作打磨（对标 PiKA ux-polish·第 8/10 轮）：\n1. 下载进度条平滑推进：导出/整本/单任务三类进度不再跳档（300ms 动画）\n2. 关注关键词删除可撤销：删除后 10 秒内可一键恢复，误删不再心疼\n3. 撤销恢复逻辑固化 3 条 JVM 单测\n4. 单测门禁 221/221 + code-health OK；模拟器复测下载链路与删除反馈无回归"
 }

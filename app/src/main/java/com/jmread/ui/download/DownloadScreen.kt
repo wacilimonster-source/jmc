@@ -14,6 +14,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -277,11 +279,14 @@ fun DownloadScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(6.dp))
+                            val exportProgress by animateFloatAsState(
+                                targetValue = if (running.totalChapters <= 0) 0f
+                                else running.chapterIndex.toFloat() / running.totalChapters,
+                                animationSpec = tween(durationMillis = 300),
+                                label = "exportProgress",
+                            )
                             LinearProgressIndicator(
-                                progress = {
-                                    if (running.totalChapters <= 0) 0f
-                                    else running.chapterIndex.toFloat() / running.totalChapters
-                                },
+                                progress = { exportProgress },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -443,8 +448,13 @@ private fun ComicGroupCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(6.dp))
+                val groupProgress by animateFloatAsState(
+                    targetValue = if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size,
+                    animationSpec = tween(durationMillis = 300),
+                    label = "groupProgress",
+                )
                 LinearProgressIndicator(
-                    progress = { if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size },
+                    progress = { groupProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp),
@@ -549,8 +559,13 @@ private fun DownloadTaskRow(
                 )
             } else when (runtime.status) {
                 DlStatus.DOWNLOADING, DlStatus.PENDING -> {
+                    val taskProgress by animateFloatAsState(
+                        targetValue = runtime.progress / 100f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "taskProgress",
+                    )
                     LinearProgressIndicator(
-                        progress = { runtime.progress / 100f },
+                        progress = { taskProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp),
