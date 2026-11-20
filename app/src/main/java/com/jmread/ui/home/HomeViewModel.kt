@@ -1,5 +1,7 @@
 package com.jmread.ui.home
 
+import com.jmread.core.model.userMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.JmRepository
@@ -177,7 +179,7 @@ class HomeViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (_randomComics.value.isEmpty()) _randomComics.value = emptyList()
-                _randomError.value = e.message?.takeIf { it.isNotBlank() } ?: "加载失败，请稍后重试"
+                _randomError.value = e.userMessage("随便看看")
             } finally {
                 _randomLoading.value = false
             }
@@ -353,7 +355,7 @@ class HomeViewModel : ViewModel() {
                     rankLoadedAt = cached.at
                 } else {
                     _rankCacheAt.value = null
-                    _rankError.value = e.message ?: "加载排行榜失败"
+                    _rankError.value = e.userMessage("排行榜")
                 }
                 // 无缓存且网络失败：首屏已进入错误终态，次级入口仍要可用
                 markRankContentReady()

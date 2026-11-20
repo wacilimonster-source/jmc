@@ -1,5 +1,7 @@
 package com.jmread.ui.channel
 
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,7 +69,7 @@ class PromoteViewModel : ViewModel() {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = e.message ?: "推荐加载失败"
+                _error.value = e.userMessage("推荐")
             } finally {
                 _loading.value = false
             }

@@ -1,5 +1,7 @@
 package com.jmread.core.update
 
+import com.jmread.core.model.userMessage
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -106,7 +108,7 @@ object UpdateManager {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _downloadUi.value = DownloadUi.Failed(e.message ?: "下载失败")
+                _downloadUi.value = DownloadUi.Failed(e.userMessage("更新包下载"))
             }
         }
     }

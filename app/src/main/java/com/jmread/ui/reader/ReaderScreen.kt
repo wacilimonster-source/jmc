@@ -1,5 +1,7 @@
 package com.jmread.ui.reader
 
+import com.jmread.core.model.userMessage
+
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -521,7 +523,7 @@ fun ReaderScreen(
                 if (result.isSuccess) {
                     "已保存到相册"
                 } else {
-                    "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}"
+                    "保存失败：${result.exceptionOrNull()?.userMessage("保存图片") ?: "未知错误"}"
                 },
                 Toast.LENGTH_SHORT,
             ).show()
@@ -577,7 +579,7 @@ fun ReaderScreen(
             if (result.isFailure) {
                 Toast.makeText(
                     context,
-                    "分享失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                    "分享失败：${result.exceptionOrNull()?.userMessage("分享图片") ?: "未知错误"}",
                     Toast.LENGTH_SHORT,
                 ).show()
             }

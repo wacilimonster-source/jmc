@@ -1,5 +1,7 @@
 package com.jmread.ui.channel
 
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,7 +123,7 @@ class ChannelViewModel : ViewModel() {
             } catch (e: Exception) {
                 if (gen == loadGeneration) {
                     _endReached.value = false
-                    _error.value = e.message ?: "加载失败"
+                    _error.value = e.userMessage("频道")
                 }
             } finally {
                 if (gen == loadGeneration) _loading.value = false

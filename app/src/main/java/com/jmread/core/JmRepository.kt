@@ -376,12 +376,23 @@ object JmRepository {
      */
     private suspend fun newArrivals(): PageResult<ComicSummary> {
         val pool = ArrayList<JmAlbumSummary>()
+        var lastError: Exception? = null
         for (page in 1..NEW_ARRIVAL_POOL_PAGES) {
-            val items = runCatching { JmClient.rankList("mv_m", page).data.items }.getOrNull()
-            if (items != null) pool.addAll(items)
+            try {
+                pool.addAll(JmClient.rankList("mv_m", page).data.items)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 单页失败不整体报废：记住原因并继续尝试下一页
+                lastError = e
+            }
         }
+        val distinct = pool.distinctBy { it.id }.map { it.toSummary() }
+        // 全部页失败且无任何数据：按失败上抛（文案映射层统一为「网络连接失败/服务暂不可用」），
+        // 不再伪装成「该档位暂无数据」——失败态与真实空必须区分（PiKA v1.12.3-7）
+        if (distinct.isEmpty()) throw lastError ?: JmException("新晋热榜数据不可用")
         val items = pickNewArrivals(
-            pool = pool.distinctBy { it.id }.map { it.toSummary() },
+            pool = distinct,
             limit = NEW_ARRIVAL_LIMIT,
             min = NEW_ARRIVAL_MIN,
         )

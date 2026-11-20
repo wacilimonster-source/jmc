@@ -1,5 +1,7 @@
 package com.jmread.ui.follow
 
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -228,7 +230,7 @@ class FollowFeedViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _error.value = "刷新失败（${e.message ?: "网络错误"}），已展示上次缓存"
+                _error.value = "刷新失败（${e.userMessage("关注流刷新")}），已展示上次缓存"
             } finally {
                 if (isActive) _loading.value = false
             }
@@ -258,7 +260,7 @@ class FollowFeedViewModel : ViewModel() {
                 runCatching { FollowFeedCache.save(_feed.value) }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _error.value = "加载更多失败（${e.message ?: "网络错误"}）"
+                _error.value = "加载更多失败（${e.userMessage("关注流加载")}）"
             } finally {
                 if (isActive) _loadingMore.value = false
             }

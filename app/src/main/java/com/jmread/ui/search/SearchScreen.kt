@@ -365,7 +365,7 @@ fun SearchScreen(
                         "已加载 ${comics.size} 部，没有匹配的作品"
                     readFilter != ReadFilter.ALL ->
                         "已加载 ${comics.size} 部，匹配 $matchedCount 部；当前页没有更多匹配"
-                    else -> "没有更多结果"
+                    else -> if (comics.isEmpty()) "没有找到相关作品，试试其他关键词" else "没有更多结果"
                 }
                 if (emptyHint != null) {
                     Text(

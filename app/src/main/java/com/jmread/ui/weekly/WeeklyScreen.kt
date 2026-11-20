@@ -1,5 +1,7 @@
 package com.jmread.ui.weekly
 
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,7 +93,7 @@ class WeeklyViewModel : ViewModel() {
             } catch (e: Exception) {
                 // 允许用户点错误提示重试：不把 loaded 固定成 true
                 loaded = false
-                _periodsError.value = e.message ?: "每周必看加载失败"
+                _periodsError.value = e.userMessage("每周必看")
             } finally {
                 // select() 自己负责内容加载的 loading 生命周期；这里提前置 false
                 // 会让内容请求还在飞时显示“选择上方期数查看内容”
@@ -117,7 +119,7 @@ class WeeklyViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (gen == selectGeneration) {
-                    _comicsError.value = e.message ?: "该期内容加载失败"
+                    _comicsError.value = e.userMessage("每周必看内容")
                 }
             } finally {
                 if (gen == selectGeneration) _loading.value = false

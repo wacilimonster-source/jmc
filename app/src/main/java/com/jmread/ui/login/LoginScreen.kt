@@ -1,5 +1,9 @@
 package com.jmread.ui.login
 
+import com.jmread.network.JmException
+
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -176,7 +180,11 @@ fun LoginScreen(
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        error = e.message ?: "登录失败"
+                        // 对标 PiKA v1.12.3：登录失败只显示服务端可读文案；网络类错误统一映射，不透出原始异常
+                        error = when (e) {
+                            is JmException -> e.serverMsg?.takeIf { it.isNotBlank() } ?: "登录失败，请稍后重试"
+                            else -> e.userMessage("登录")
+                        }
                     } finally {
                         loading = false
                     }

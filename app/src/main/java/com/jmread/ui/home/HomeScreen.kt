@@ -539,7 +539,7 @@ private fun RankTab(
         }
         if (cacheAt != null) {
             InlineErrorBanner(
-                message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}前的缓存",
+                message = "服务端异常 · 显示 ${rankCacheAgeText(cacheAt)}的缓存",
                 onRetry = onRefreshRank,
             )
         }

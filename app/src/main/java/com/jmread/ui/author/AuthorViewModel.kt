@@ -1,5 +1,7 @@
 package com.jmread.ui.author
 
+import com.jmread.core.model.userMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.model.ComicSort
@@ -77,7 +79,7 @@ class AuthorViewModel : ViewModel() {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = e.message ?: "加载失败"
+                _error.value = e.userMessage("作者作品")
             } finally {
                 if (isActive) _loading.value = false
             }

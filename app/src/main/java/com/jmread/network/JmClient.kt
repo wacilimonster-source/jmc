@@ -167,17 +167,19 @@ object JmClient {
                 }
                 if (code == 401) {
                     val msg = apiErrorMessage(text) ?: text.take(120)
-                    throw JmException("禁漫接口 401：$msg", 401)
+                    throw JmException("禁漫接口 401：$msg", 401, serverMsg = apiErrorMessage(text))
                 }
                 if (isRetryableHttpStatus(code)) {
                     // 5xx / 429 是服务端或网关故障：换一条线路大概率能成。
                     // 实测 2026-09-21：/search 在 4 个内置镜像上随机返回 HTTP 500（空体），
                     // 同一时刻总有镜像返回 200 —— 不换域就等于把「换条线路就好」变成硬失败。
-                    throw IOException("禁漫接口 ${code}（服务端故障，换域重试）：${text.take(80)}")
+                    // 用 JmException（IOException 子类）携带状态码：镜像全败时文案映射层
+                    // 能按「服务暂不可用」展示，而不是误报「网络连接失败」。
+                    throw JmException("禁漫接口 ${code}（服务端故障，换域重试）：${text.take(80)}", code)
                 }
                 if (code !in 200..299) {
                     val msg = apiErrorMessage(text) ?: text.take(120)
-                    throw JmException("禁漫接口 ${code}: $msg", code)
+                    throw JmException("禁漫接口 ${code}: $msg", code, serverMsg = apiErrorMessage(text))
                 }
                 if (text.trimStart().firstOrNull() != '{') {
                     // 网关异常页 / 风控页等非 JSON 响应：当作该 host 故障处理
@@ -397,7 +399,15 @@ object JmClient {
         // 密码失效时 login -> 401 -> hook -> login 会无限递归（StackOverflow）。
         val text = execute("/login", mapOf("username" to email, "password" to password), retriedAuth = true)
         val resp = json.decodeFromString(JmLoginResponse.serializer(), text)
-        if (resp.data.s.isBlank()) throw JmException("禁漫登录失败：${resp.errorMsg ?: text.take(120)}")
+        if (resp.data.s.isBlank()) {
+            // 登录失败的用户可见文案：仅保留服务端 errorMsg（如「账号或密码错误」）；
+            // 技术前缀不进 message——LoginScreen 直接展示 serverMsg
+            throw JmException(
+                "禁漫登录失败：${resp.errorMsg ?: text.take(120)}",
+                401,
+                serverMsg = resp.errorMsg?.takeIf { it.isNotBlank() },
+            )
+        }
         return resp.data
     }
 

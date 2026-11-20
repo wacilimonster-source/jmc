@@ -14,7 +14,22 @@ enum class MockFault(val label: String) {
     TRUNCATE("响应截断");
 
     companion object {
-        fun of(raw: String?): MockFault = entries.firstOrNull { it.name.equals(raw, true) || it.label == raw } ?: NONE
+        /** 深链参数别名：error/500 → ERROR500，slow/timeout → SLOW，offline/断网 → OFFLINE，truncate/截断 → TRUNCATE */
+        private val ALIASES = mapOf(
+            "error" to ERROR500, "500" to ERROR500, "5xx" to ERROR500, "server" to ERROR500,
+            "slow" to SLOW, "timeout" to SLOW, "慢网" to SLOW,
+            "offline" to OFFLINE, "断网" to OFFLINE, "net" to OFFLINE,
+            "truncate" to TRUNCATE, "截断" to TRUNCATE, "cut" to TRUNCATE,
+            "none" to NONE, "off" to NONE, "正常" to NONE,
+        )
+
+        fun of(raw: String?): MockFault {
+            if (raw.isNullOrBlank()) return NONE
+            return entries.firstOrNull { it.name.equals(raw, true) }
+                ?: ALIASES[raw.lowercase()]
+                ?: entries.firstOrNull { it.label == raw }
+                ?: NONE
+        }
     }
 }
 

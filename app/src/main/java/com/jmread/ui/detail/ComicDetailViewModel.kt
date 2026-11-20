@@ -1,5 +1,7 @@
 package com.jmread.ui.detail
 
+import com.jmread.core.model.userMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.JmRepository
@@ -146,7 +148,7 @@ class ComicDetailViewModel : ViewModel() {
                     throw e
                 } catch (e: Exception) {
                     if (gen == loadGeneration) {
-                        _chaptersError.value = e.message?.takeIf { it.isNotBlank() } ?: "章节加载失败"
+                        _chaptersError.value = e.userMessage("章节")
                     }
                     refreshReadKeys(comicId, gen)
                 } finally {
@@ -178,7 +180,7 @@ class ComicDetailViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (gen == loadGeneration) {
-                    _error.value = e.message ?: "加载失败"
+                    _error.value = e.userMessage("详情")
                 }
             }
             chaptersJob.join()
@@ -218,7 +220,7 @@ class ComicDetailViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (gen == loadGeneration) {
-                    _chaptersError.value = e.message?.takeIf { it.isNotBlank() } ?: "章节加载失败"
+                    _chaptersError.value = e.userMessage("章节")
                 }
             } finally {
                 if (gen == loadGeneration) _loading.value = false
@@ -394,7 +396,7 @@ class ComicDetailViewModel : ViewModel() {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (gen == loadGeneration) _commentError.value = e.message ?: "评论加载失败"
+                if (gen == loadGeneration) _commentError.value = e.userMessage("评论")
             } finally {
                 if (gen == loadGeneration && seq == commentSeq) _commentLoading.value = false
             }

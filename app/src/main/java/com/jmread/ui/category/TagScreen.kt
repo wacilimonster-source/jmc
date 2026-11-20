@@ -1,5 +1,7 @@
 package com.jmread.ui.category
 
+import com.jmread.core.model.userMessage
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,7 +119,7 @@ class TagViewModel : ViewModel() {
             } catch (e: Exception) {
                 if (gen == loadGeneration) {
                     _endReached.value = false
-                    _error.value = e.message ?: "加载失败"
+                    _error.value = e.userMessage("标签流")
                 }
             } finally {
                 if (gen == loadGeneration) _loading.value = false

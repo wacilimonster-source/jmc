@@ -1,5 +1,7 @@
 package com.jmread.ui.browse
 
+import com.jmread.core.model.userMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.model.ComicCategory
@@ -52,7 +54,7 @@ class BrowseViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 // 分类失败不阻塞作品流；错误显式暴露给分类区就地重试
-                _categoriesError.value = e.message?.takeIf { it.isNotBlank() } ?: "分类加载失败"
+                _categoriesError.value = e.userMessage("分类")
                 _categoriesReady.value = true
             } finally {
                 _categoriesLoading.value = false
@@ -203,7 +205,7 @@ class BrowseViewModel : ViewModel() {
                 if (token == loadToken) {
                     // 失败要解锁 endReached，否则 loadMore 被永久拦截，分页失效
                     _endReached.value = false
-                    _error.value = e.message ?: "加载失败"
+                    _error.value = e.userMessage("作品流")
                 }
             } finally {
                 if (isActive && token == loadToken) _loading.value = false

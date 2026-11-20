@@ -1,5 +1,7 @@
 package com.jmread.ui.search
 
+import com.jmread.core.model.userMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmread.core.JmCapabilities
@@ -231,7 +233,7 @@ class SearchViewModel : ViewModel() {
                         throw e
                     } catch (e: Exception) {
                         if (_activeSearchKey == key()) {
-                            _searchError.value = e.message?.takeIf { it.isNotBlank() } ?: "搜索失败，请稍后重试"
+                            _searchError.value = e.userMessage("搜索")
                             _endReached.value = true
                         }
                     }
@@ -449,8 +451,7 @@ class SearchViewModel : ViewModel() {
                 } catch (e: Exception) {
                     // 加载更多失败不能伪装成“到底了”：保留可重试状态并显示错误
                     if (_activeSearchKey == key()) {
-                        _searchError.value = e.message?.takeIf { it.isNotBlank() }
-                            ?: "加载更多失败，请稍后重试"
+                        _searchError.value = e.userMessage("搜索加载更多")
                         _endReached.value = false
                     }
                 } finally {

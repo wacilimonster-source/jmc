@@ -231,7 +231,7 @@ fun DownloadScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Spacer(Modifier.height(4.dp))
-                        Text(
+                        if (tasks.isNotEmpty()) Text(
                             text = "${tasks.count { it.isFinished }}/${tasks.size} 个任务完成",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
