@@ -38,7 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,20 +66,20 @@ fun SearchScreen(
     initialKeyword: String? = null,
     viewModel: SearchViewModel = viewModel(),
 ) {
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val keyword by viewModel.keyword.collectAsState()
-    val currentSort by viewModel.sort.collectAsState()
-    val totalPages by viewModel.totalPages.collectAsState()
-    val multiLoading by viewModel.multiLoading.collectAsState()
-    val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
-    val searchError by viewModel.searchError.collectAsState()
-    val tags by viewModel.tags.collectAsState()
-    val dimension by viewModel.dimension.collectAsState()
-    val total by viewModel.total.collectAsState()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val keyword by viewModel.keyword.collectAsStateWithLifecycle()
+    val currentSort by viewModel.sort.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
+    val multiLoading by viewModel.multiLoading.collectAsStateWithLifecycle()
+    val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
+    val searchError by viewModel.searchError.collectAsStateWithLifecycle()
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val dimension by viewModel.dimension.collectAsStateWithLifecycle()
+    val total by viewModel.total.collectAsStateWithLifecycle()
     // 搜索历史（10 条去重置顶）：空态时展示，点词直达、页内可清空
-    val history by com.jmread.data.SearchHistory.keywords.collectAsState()
+    val history by com.jmread.data.SearchHistory.keywords.collectAsStateWithLifecycle()
     // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
     var input by remember { mutableStateOf(viewModel.keyword.value) }
     var showTagSheet by remember { mutableStateOf(false) }

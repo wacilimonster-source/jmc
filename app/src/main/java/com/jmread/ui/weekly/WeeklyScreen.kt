@@ -24,7 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,14 +136,14 @@ fun WeeklyScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: WeeklyViewModel = viewModel(),
 ) {
-    val periods by viewModel.periods.collectAsState()
-    val selected by viewModel.selected.collectAsState()
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val periodsError by viewModel.periodsError.collectAsState()
-    val comicsError by viewModel.comicsError.collectAsState()
+    val periods by viewModel.periods.collectAsStateWithLifecycle()
+    val selected by viewModel.selected.collectAsStateWithLifecycle()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val periodsError by viewModel.periodsError.collectAsStateWithLifecycle()
+    val comicsError by viewModel.comicsError.collectAsStateWithLifecycle()
     val gridState = rememberLazyGridState()
-    val columns by GridSettings.columnsFlow.collectAsState()
+    val columns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.ensureLoaded() }
 

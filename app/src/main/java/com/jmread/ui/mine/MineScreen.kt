@@ -33,7 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +77,7 @@ fun MineScreen(
     var deleteSavedCredentials by remember { mutableStateOf(false) }
 
     // 统一书架条目流：入口副标题的「N 本收藏 · M 本在读」直接从并集取数
-    val libraryItems by LibraryRepository.items.collectAsState()
+    val libraryItems by LibraryRepository.items.collectAsStateWithLifecycle()
     val collectedCount = libraryItems.count { it.collected }
     val readingCount = libraryItems.count { it.lastOrder != null && !it.finished }
 
@@ -371,7 +371,7 @@ private fun MenuRow(
  */
 @Composable
 private fun CheckInStatusText() {
-    val state by DailyCheckIn.state.collectAsState()
+    val state by DailyCheckIn.state.collectAsStateWithLifecycle()
     when (val s = state) {
         DailyCheckIn.State.Idle -> {}
         DailyCheckIn.State.Running -> StatusText("自动签到中…", MaterialTheme.colorScheme.onSurfaceVariant)

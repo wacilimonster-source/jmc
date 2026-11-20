@@ -25,7 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -143,16 +143,16 @@ fun TagScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: TagViewModel = viewModel(),
 ) {
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val sort by viewModel.sort.collectAsState()
-    val totalPages by viewModel.totalPages.collectAsState()
-    val currentPage by viewModel.currentPage.collectAsState()
-    val total by viewModel.total.collectAsState()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
+    val currentPage by viewModel.currentPage.collectAsStateWithLifecycle()
+    val total by viewModel.total.collectAsStateWithLifecycle()
     val listState = rememberLazyGridState()
-    val columns by GridSettings.columnsFlow.collectAsState()
+    val columns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(tag) {
         viewModel.load(tag, page = 1, reloadKey = tag)

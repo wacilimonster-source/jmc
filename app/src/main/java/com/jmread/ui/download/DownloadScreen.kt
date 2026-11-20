@@ -45,7 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,13 +78,13 @@ fun DownloadScreen(
     onBack: () -> Unit,
     onComicClick: (comicId: String, order: Int) -> Unit = { _, _ -> },
 ) {
-    val tasks by DownloadManager.tasks.collectAsState()
+    val tasks by DownloadManager.tasks.collectAsStateWithLifecycle()
     // 显式订阅派生状态：总占用 / 总速度独立刷新，不依赖 tasks 的隐式读取
-    val totalBytes by DownloadManager.totalBytesFlow.collectAsState()
-    val totalSpeed by DownloadManager.totalSpeedFlow.collectAsState()
+    val totalBytes by DownloadManager.totalBytesFlow.collectAsStateWithLifecycle()
+    val totalSpeed by DownloadManager.totalSpeedFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val exportState by DownloadExporter.state.collectAsState()
+    val exportState by DownloadExporter.state.collectAsStateWithLifecycle()
     var pendingExport by rememberSaveable(stateSaver = PendingExportSaver) {
         mutableStateOf<PendingExport?>(null)
     }

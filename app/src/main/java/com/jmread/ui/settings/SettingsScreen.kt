@@ -42,7 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,15 +72,15 @@ fun SettingsScreen(
     onOpenLog: () -> Unit = {},
 ) {
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
-        .collectAsState(initial = true)
-    val gridColumns by GridSettings.columnsFlow.collectAsState()
+        .collectAsStateWithLifecycle(initialValue = true)
+    val gridColumns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var readerMode by remember { mutableStateOf(ReaderPrefs.current().readerMode) }
     var showAbout by remember { mutableStateOf(false) }
-    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsState(initial = false)
-    val notifyEnabled by DownloadPrefs.notifyEnabledFlow.collectAsState(initial = DownloadPrefs.notifyEnabled)
-    val wifiOnly by DownloadPrefs.wifiOnlyFlow.collectAsState(initial = DownloadPrefs.wifiOnly)
+    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsStateWithLifecycle(initialValue = false)
+    val notifyEnabled by DownloadPrefs.notifyEnabledFlow.collectAsStateWithLifecycle(initialValue = DownloadPrefs.notifyEnabled)
+    val wifiOnly by DownloadPrefs.wifiOnlyFlow.collectAsStateWithLifecycle(initialValue = DownloadPrefs.wifiOnly)
     var notificationDenied by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -319,7 +319,7 @@ private fun ConnectionDiagnosticsSection(onOpenLog: () -> Unit) {
     var currentHost by remember { mutableStateOf(DomainPool.currentApiHost) }
     // P3 观察：自愈把坏域名切走后，本页仍显示旧域名且「（手动）」标签误导。
     // 订阅 DomainPool.hostVersion 让生效域名在本页停留期间也能实时刷新。
-    val hostVersion by DomainPool.hostVersion.collectAsState()
+    val hostVersion by DomainPool.hostVersion.collectAsStateWithLifecycle()
     LaunchedEffect(hostVersion) { currentHost = DomainPool.currentApiHost }
     var advanced by remember { mutableStateOf(false) }
 
@@ -456,7 +456,7 @@ private fun UpdateSection() {
     // （app 级作用域）：下载中关对话框/离开设置页都不再静默取消，回来进度仍可见、可重试
     var checkState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
     var lastFound by remember { mutableStateOf<UpdateManager.UpdateInfo?>(null) }
-    val dlState by UpdateManager.downloadUi.collectAsState()
+    val dlState by UpdateManager.downloadUi.collectAsStateWithLifecycle()
     var dialogOpen by remember { mutableStateOf(false) }
     val state: UpdateUiState = when (val d = dlState) {
         is UpdateManager.DownloadUi.Downloading -> UpdateUiState.Downloading

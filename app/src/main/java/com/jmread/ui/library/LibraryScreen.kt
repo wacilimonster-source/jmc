@@ -22,7 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,12 +134,12 @@ fun LibraryScreen(
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     viewModel: LibraryViewModel = viewModel(),
 ) {
-    val items by viewModel.filtered.collectAsState()
-    val allItems by viewModel.items.collectAsState()
-    val cloud by viewModel.cloud.collectAsState()
-    val filter by viewModel.filter.collectAsState()
-    val pendingCount by viewModel.pendingCount.collectAsState(initial = 0)
-    val columns by GridSettings.columnsFlow.collectAsState()
+    val items by viewModel.filtered.collectAsStateWithLifecycle()
+    val allItems by viewModel.items.collectAsStateWithLifecycle()
+    val cloud by viewModel.cloud.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val pendingCount by viewModel.pendingCount.collectAsStateWithLifecycle(initialValue = 0)
+    val columns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
     val listState = rememberLazyGridState()
     var menuTarget by remember { mutableStateOf<LibraryItem?>(null) }
 

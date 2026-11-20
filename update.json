@@ -1,6 +1,6 @@
 {
-  "sha256": "7511d169c9966a6e0e77f1dc3498651e938911cac71678e104286c688a59da07",
-  "version": "0.8.3",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.3.apk",
-  "notes": "JM Reader 0.8.3 作者署名解析与片段搜索（对标 PiKA v1.10.0·第 4/10 轮）：\n1. 复合署名不再整串搜索：详情页点击联合署名/带翻译署名时弹出选择层，任选一段按该片段搜作品\n2. 作者页顶部片段切换条：选错可原地换人（模拟作者乙/翻译·模拟丙/完整署名），无需返回重进\n3. 收藏作者与复制以当前浏览片段为准；标题与原署名提示实时跟随\n4. 路由扩展 author/{author}?origin={origin}，旧入口完全兼容\n5. 署名解析器 14 条 JVM 单测（拆分/角色括号/去重/上限/兜底出口）\n6. 单测门禁 218/218；模拟器复测通过（直达/弹层/切换/提示全链路）"
+  "sha256": "a9fd7975ed6038eccdd3fdb3c64552cf043bca9b5933f0c2e38aca97ebc1b902",
+  "version": "0.8.4",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.4.apk",
+  "notes": "JM Reader 0.8.4 性能优化（对标 PiKA perf-architecture·第 5/10 轮）：\n1. 全部界面状态收集改为生命周期感知（151 处 collectAsStateWithLifecycle）：后台驻留时不再持续刷新，省电省 CPU\n2. 阅读器捏合缩放期间不再每帧重组整个翻页分支（derivedStateOf 布尔门控）\n3. 亮度蒙层拆分为独立叶子组件：拖动亮度滑条不再触发阅读器内容重组\n4. 全站网格列表补充 contentType，卡片与页脚复用更精准\n5. 单测门禁 218/218；模拟器全链路复测无回归（冷启动/阅读器亮度/翻页/网格）"
 }

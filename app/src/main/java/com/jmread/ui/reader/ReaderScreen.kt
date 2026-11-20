@@ -67,7 +67,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -142,22 +142,22 @@ fun ReaderScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val pages by viewModel.pages.collectAsState()
-    val chapters by viewModel.chapters.collectAsState()
-    val chaptersResolved by viewModel.chaptersResolved.collectAsState()
-    val downloadedOrders by viewModel.downloadedOrders.collectAsState()
-    val readChapterKeys by viewModel.readChapterKeys.collectAsState()
-    val epTitle by viewModel.epTitle.collectAsState()
-    val comicTitle by viewModel.comicTitle.collectAsState()
-    val loading by viewModel.loading.collectAsState()
+    val pages by viewModel.pages.collectAsStateWithLifecycle()
+    val chapters by viewModel.chapters.collectAsStateWithLifecycle()
+    val chaptersResolved by viewModel.chaptersResolved.collectAsStateWithLifecycle()
+    val downloadedOrders by viewModel.downloadedOrders.collectAsStateWithLifecycle()
+    val readChapterKeys by viewModel.readChapterKeys.collectAsStateWithLifecycle()
+    val epTitle by viewModel.epTitle.collectAsStateWithLifecycle()
+    val comicTitle by viewModel.comicTitle.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     // 当前章节号以 VM 为准：切章只改 VM，导航路由参数不变，
     // 上下话按钮/标题按路由算会错乱（第二次"下一话"失效、上一话跳错章）
-    val vmOrder by viewModel.currentOrderFlow.collectAsState()
+    val vmOrder by viewModel.currentOrderFlow.collectAsStateWithLifecycle()
 
-    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsState(initial = false)
-    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsState(initial = false)
+    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsStateWithLifecycle(initialValue = false)
+    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsStateWithLifecycle(initialValue = false)
     // 初值 true：偏好读盘完成前不闪引导层；读到 false 才展示
-    val guideShown by ReaderPrefs.current().readerGuideShown.collectAsState(initial = true)
+    val guideShown by ReaderPrefs.current().readerGuideShown.collectAsStateWithLifecycle(initialValue = true)
     var guideDismissed by remember { mutableStateOf(false) }
 
     var scrollMode by remember { mutableStateOf(ReaderPrefs.current().readerMode == 0) }
@@ -193,7 +193,7 @@ fun ReaderScreen(
     var brightness by remember { mutableFloatStateOf(ReaderPrefs.current().brightness) }
     // PERF-09：设置状态一次性加载（不再 runBlocking 回退读盘）。未就绪先显示加载态，
     // 就绪后一次性应用阅读模式与亮度，避免"默认值先渲染、读到真值再跳变"。
-    val hotSettings by ReaderPrefs.current().hotSettings.collectAsState()
+    val hotSettings by ReaderPrefs.current().hotSettings.collectAsStateWithLifecycle()
     var settingsApplied by remember { mutableStateOf(false) }
     var brightnessAdjusted by remember { mutableStateOf(false) }
     LaunchedEffect(hotSettings.ready) {
@@ -204,6 +204,9 @@ fun ReaderScreen(
         }
     }
     var zoomScale by remember { mutableFloatStateOf(1f) }
+    // PERF：捏合期间每帧都会改 zoomScale，但 pager 只关心「是否可翻页」这个布尔——
+    // 用 derivedStateOf 把高频 Float 变化收敛成布尔翻转，避免整条 pager 分支每帧重组
+    val pagerScrollEnabled = remember { derivedStateOf { zoomScale <= 1f } }
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
@@ -351,7 +354,7 @@ fun ReaderScreen(
         rowPrefix[page.coerceIn(0, pages.size)]
 
     // 进度恢复：先按当前已知切片粗定位；随后等切片解析完成再校正（上限 3 秒）。
-    val pendingRestore by viewModel.pendingRestorePage.collectAsState()
+    val pendingRestore by viewModel.pendingRestorePage.collectAsStateWithLifecycle()
     val restoring = remember { mutableStateOf(false) }
     LaunchedEffect(pages.size, pendingRestore, scrollMode) {
         if (pages.isNotEmpty() && pendingRestore >= 0) {
@@ -857,7 +860,7 @@ fun ReaderScreen(
                 else -> {
                     HorizontalPager(
                         state = pagerState,
-                        userScrollEnabled = zoomScale <= 1f,
+                        userScrollEnabled = pagerScrollEnabled.value,
                         // P2-08：正常内存前后各 1 页；低内存/压力降为 0
                         beyondViewportPageCount = MemoryBudget.pagerPrefetchPages(),
                         modifier = Modifier
@@ -897,14 +900,9 @@ fun ReaderScreen(
                 }
             }
 
-            // 亮度蒙层
-            if (brightness < 1f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (1f - brightness).coerceIn(0f, 0.8f))),
-                )
-            }
+            // 亮度蒙层：状态读取下沉到叶子 Composable——滑条每帧变化只重组蒙层本身，
+            // 不再重组包含 LazyColumn/Pager 的整个内容作用域（PERF，对标 pika perf-arch P1-8）
+            BrightnessScrim(alpha = { 1f - brightness })
 
             // 首次点击分区引导：一次性，点任意处关闭
             if (pages.isNotEmpty() && !guideShown && !guideDismissed) {
@@ -1588,4 +1586,20 @@ private fun isNetworkAvailable(context: Context): Boolean {
     val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
     val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) } ?: return false
     return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
+
+/**
+ * 亮度蒙层（叶子）：只在自身组合作用域读亮度值，拖动亮度滑条时不触发
+ * 阅读器内容（LazyColumn/Pager）的任何重组。
+ */
+@Composable
+private fun BrightnessScrim(alpha: () -> Float) {
+    val a = alpha().coerceIn(0f, 0.8f)
+    if (a > 0f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = a)),
+        )
+    }
 }

@@ -34,7 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,10 +69,10 @@ fun CategoryScreen(
     onTagClick: (String) -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
 ) {
-    val categories by viewModel.categories.collectAsState()
-    val categoriesLoading by viewModel.categoriesLoading.collectAsState()
-    val categoriesError by viewModel.categoriesError.collectAsState()
-    val categoriesReady by viewModel.categoriesReady.collectAsState()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val categoriesLoading by viewModel.categoriesLoading.collectAsStateWithLifecycle()
+    val categoriesError by viewModel.categoriesError.collectAsStateWithLifecycle()
+    val categoriesReady by viewModel.categoriesReady.collectAsStateWithLifecycle()
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
     var categorySettings by remember { mutableStateOf(CategorySettings.get()) }
     var showSettings by remember { mutableStateOf(false) }
@@ -284,13 +284,13 @@ fun CategoryComicsScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
 ) {
-    val categories by viewModel.categories.collectAsState()
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val sort by viewModel.sort.collectAsState()
-    val totalPages by viewModel.totalPages.collectAsState()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
     val listState = rememberLazyGridState()
     val supportedSorts = remember { JmCapabilities.supportedSorts }
 

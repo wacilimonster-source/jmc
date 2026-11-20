@@ -12,7 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,7 +36,7 @@ fun UpdateDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val dlState by UpdateManager.downloadUi.collectAsState()
+    val dlState by UpdateManager.downloadUi.collectAsStateWithLifecycle()
     // 仅装本地交互错误（安装包丢失/安装失败），下载错误在 dlState.Failed 里
     var installError by remember { mutableStateOf<String?>(null) }
 

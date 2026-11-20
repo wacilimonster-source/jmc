@@ -25,7 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -147,19 +147,19 @@ fun ChannelScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: ChannelViewModel = viewModel(),
 ) {
-    val title by viewModel.title.collectAsState()
-    val description by viewModel.description.collectAsState()
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val sort by viewModel.sort.collectAsState()
-    val totalPages by viewModel.totalPages.collectAsState()
-    val currentPage by viewModel.currentPage.collectAsState()
-    val total by viewModel.total.collectAsState()
+    val title by viewModel.title.collectAsStateWithLifecycle()
+    val description by viewModel.description.collectAsStateWithLifecycle()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
+    val currentPage by viewModel.currentPage.collectAsStateWithLifecycle()
+    val total by viewModel.total.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyGridState()
-    val columns by GridSettings.columnsFlow.collectAsState()
+    val columns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(channelId) {
         // reloadKey 命中时 VM 会保留同频道的当前页与数据（从详情返回不再跳回第 1 页）。

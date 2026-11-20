@@ -34,7 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
@@ -96,8 +96,8 @@ fun ComicGridView(
     /** 可选「更多」入口（书架卡片）：呈现与长按相同的操作菜单（I07：打开详情始终可达） */
     onMoreClick: ((String) -> Unit)? = null,
 ) {
-    val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
-    val columns by com.jmread.data.GridSettings.columnsFlow.collectAsState()
+    val statusVersion by com.jmread.data.ReaderStatus.version.collectAsStateWithLifecycle()
+    val columns by com.jmread.data.GridSettings.columnsFlow.collectAsStateWithLifecycle()
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = listState,
@@ -106,7 +106,8 @@ fun ComicGridView(
         horizontalArrangement = Arrangement.spacedBy(ComicGridSpec.H_GAP_DP.dp),
         verticalArrangement = Arrangement.spacedBy(ComicGridSpec.V_GAP_DP.dp),
     ) {
-        items(comics, key = { it.ref }) { comic ->
+        // PERF contentType：卡片与尾部加载/终态页脚复用组成差异大，给复用器明确类型提示
+        items(comics, key = { it.ref }, contentType = { "comic-card" }) { comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.jmread.data.ReaderStatus.of(comic.ref) }
             val isNew = remember(comic.ref, newUntil) {
                 newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
@@ -132,7 +133,7 @@ fun ComicGridView(
             }
         }
         if (loading && showTailLoading) {
-            item {
+            item(contentType = "grid-tail") {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.padding(16.dp))
                 }
@@ -140,7 +141,7 @@ fun ComicGridView(
         }
         // 终态页脚：分页流到头（endReached）且确有内容时显示，跨全部列
         if (!loading && endReached && comics.isNotEmpty()) {
-            item(key = "end-reached", span = { GridItemSpan(maxLineSpan) }) {
+            item(key = "end-reached", span = { GridItemSpan(maxLineSpan) }, contentType = "grid-tail") {
                 Text(
                     text = endHintText,
                     style = MaterialTheme.typography.bodySmall,
@@ -176,7 +177,7 @@ fun ComicGridItem(
     columns: Int,
     onComicClick: (String) -> Unit,
 ) {
-    val statusVersion by com.jmread.data.ReaderStatus.version.collectAsState()
+    val statusVersion by com.jmread.data.ReaderStatus.version.collectAsStateWithLifecycle()
     val readStatus = remember(comic.ref, statusVersion) {
         com.jmread.data.ReaderStatus.of(comic.ref)
     }

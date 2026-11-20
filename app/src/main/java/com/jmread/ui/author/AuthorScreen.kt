@@ -34,7 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,18 +61,18 @@ fun AuthorComicsScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: AuthorViewModel = viewModel(),
 ) {
-    val comics by viewModel.comics.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val sort by viewModel.sort.collectAsState()
-    val status by viewModel.status.collectAsState()
-    val totalPages by viewModel.totalPages.collectAsState()
-    val currentPage by viewModel.currentPage.collectAsState()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val status by viewModel.status.collectAsStateWithLifecycle()
+    val totalPages by viewModel.totalPages.collectAsStateWithLifecycle()
+    val currentPage by viewModel.currentPage.collectAsStateWithLifecycle()
     // 片段切换（对标 PiKA v1.10.0）：原署名解析片段 + 当前生效查询
-    val parsed by viewModel.parsed.collectAsState()
-    val currentQuery by viewModel.currentQuery.collectAsState()
-    val originVal by viewModel.origin.collectAsState()
+    val parsed by viewModel.parsed.collectAsStateWithLifecycle()
+    val currentQuery by viewModel.currentQuery.collectAsStateWithLifecycle()
+    val originVal by viewModel.origin.collectAsStateWithLifecycle()
     val listState = rememberLazyGridState()
     val supportedSorts = remember { JmCapabilities.supportedSorts }
 

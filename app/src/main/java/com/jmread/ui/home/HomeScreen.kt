@@ -41,7 +41,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -87,28 +87,28 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
     followViewModel: FollowFeedViewModel = viewModel(),
 ) {
-    val rankComics by viewModel.rankComics.collectAsState()
-    val rankType by viewModel.rankType.collectAsState()
-    val rankTabs by viewModel.rankTabs.collectAsState()
-    val rankLoading by viewModel.rankLoading.collectAsState()
-    val rankError by viewModel.rankError.collectAsState()
-    val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
-    val rankTotal by viewModel.rankTotal.collectAsState()
-    val rankCacheAt by viewModel.rankCacheAt.collectAsState()
-    val rankFirstContentReady by viewModel.rankFirstContentReady.collectAsState()
-    val randomComics by viewModel.randomComics.collectAsState()
-    val randomLoading by viewModel.randomLoading.collectAsState()
-    val randomError by viewModel.randomError.collectAsState()
-    val followFeed by followViewModel.feed.collectAsState()
-    val followLoading by followViewModel.loading.collectAsState()
-    val followLoadingMore by followViewModel.loadingMore.collectAsState()
-    val followEndReached by followViewModel.endReached.collectAsState()
-    val followEmptyHint by followViewModel.emptyHint.collectAsState()
-    val followError by followViewModel.error.collectAsState()
-    val followRefreshTick by followViewModel.refreshTick.collectAsState()
-    val seenMarker by followViewModel.seenMarker.collectAsState()
-    val updateInfo by com.jmread.core.update.UpdateState.updateInfo.collectAsState()
-    val gridColumns by com.jmread.data.GridSettings.columnsFlow.collectAsState()
+    val rankComics by viewModel.rankComics.collectAsStateWithLifecycle()
+    val rankType by viewModel.rankType.collectAsStateWithLifecycle()
+    val rankTabs by viewModel.rankTabs.collectAsStateWithLifecycle()
+    val rankLoading by viewModel.rankLoading.collectAsStateWithLifecycle()
+    val rankError by viewModel.rankError.collectAsStateWithLifecycle()
+    val rankRefreshTick by viewModel.rankRefreshTick.collectAsStateWithLifecycle()
+    val rankTotal by viewModel.rankTotal.collectAsStateWithLifecycle()
+    val rankCacheAt by viewModel.rankCacheAt.collectAsStateWithLifecycle()
+    val rankFirstContentReady by viewModel.rankFirstContentReady.collectAsStateWithLifecycle()
+    val randomComics by viewModel.randomComics.collectAsStateWithLifecycle()
+    val randomLoading by viewModel.randomLoading.collectAsStateWithLifecycle()
+    val randomError by viewModel.randomError.collectAsStateWithLifecycle()
+    val followFeed by followViewModel.feed.collectAsStateWithLifecycle()
+    val followLoading by followViewModel.loading.collectAsStateWithLifecycle()
+    val followLoadingMore by followViewModel.loadingMore.collectAsStateWithLifecycle()
+    val followEndReached by followViewModel.endReached.collectAsStateWithLifecycle()
+    val followEmptyHint by followViewModel.emptyHint.collectAsStateWithLifecycle()
+    val followError by followViewModel.error.collectAsStateWithLifecycle()
+    val followRefreshTick by followViewModel.refreshTick.collectAsStateWithLifecycle()
+    val seenMarker by followViewModel.seenMarker.collectAsStateWithLifecycle()
+    val updateInfo by com.jmread.core.update.UpdateState.updateInfo.collectAsStateWithLifecycle()
+    val gridColumns by com.jmread.data.GridSettings.columnsFlow.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableStateOf(1) }
     var showUpdateDialog by remember { mutableStateOf(false) }
@@ -124,7 +124,7 @@ fun HomeScreen(
     // 三个 Tab 是条件分支渲染：没有 SaveableStateHolder 时，切走再回来
     // RankTab 内部的 rememberSaveable（分区/排序/筛选）会被丢弃。
     val tabStateHolder = rememberSaveableStateHolder()
-    val scrollStateRestored by viewModel.isScrollStateRestored.collectAsState()
+    val scrollStateRestored by viewModel.isScrollStateRestored.collectAsStateWithLifecycle()
 
     // 离开关注 Tab（切走/退出首页）时推进「已看到」基线
     LaunchedEffect(selectedTab) {

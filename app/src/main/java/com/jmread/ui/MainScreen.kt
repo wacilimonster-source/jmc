@@ -25,7 +25,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -109,7 +109,7 @@ fun MainScreen() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
-        .collectAsState(initial = true)
+        .collectAsStateWithLifecycle(initialValue = true)
 
     // 手填域名失败被自愈切走的提醒（全量实测观察项）：坏域名自动切到可用镜像后，
     // 设置页手填框仍保留原值，不给一句说明用户会以为坏域名仍在生效

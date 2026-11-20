@@ -64,7 +64,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -103,28 +103,28 @@ fun ComicDetailScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: ComicDetailViewModel = viewModel(),
 ) {
-    val comic by viewModel.comic.collectAsState()
-    val chapters by viewModel.chapters.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val loadError by viewModel.error.collectAsState()
-    val chaptersError by viewModel.chaptersError.collectAsState()
-    val favourited by viewModel.favourited.collectAsState()
-    val recommendations by viewModel.recommendations.collectAsState()
-    val comments by viewModel.comments.collectAsState()
-    val commentLoading by viewModel.commentLoading.collectAsState()
-    val commentEndReached by viewModel.commentEndReached.collectAsState()
-    val commentError by viewModel.commentError.collectAsState()
-    val sending by viewModel.sending.collectAsState()
-    val subComments by viewModel.subComments.collectAsState()
-    val replyingTo by viewModel.replyingTo.collectAsState()
-    val lastProgress by viewModel.lastProgress.collectAsState()
-    val favouriteError by viewModel.favouriteError.collectAsState()
+    val comic by viewModel.comic.collectAsStateWithLifecycle()
+    val chapters by viewModel.chapters.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val loadError by viewModel.error.collectAsStateWithLifecycle()
+    val chaptersError by viewModel.chaptersError.collectAsStateWithLifecycle()
+    val favourited by viewModel.favourited.collectAsStateWithLifecycle()
+    val recommendations by viewModel.recommendations.collectAsStateWithLifecycle()
+    val comments by viewModel.comments.collectAsStateWithLifecycle()
+    val commentLoading by viewModel.commentLoading.collectAsStateWithLifecycle()
+    val commentEndReached by viewModel.commentEndReached.collectAsStateWithLifecycle()
+    val commentError by viewModel.commentError.collectAsStateWithLifecycle()
+    val sending by viewModel.sending.collectAsStateWithLifecycle()
+    val subComments by viewModel.subComments.collectAsStateWithLifecycle()
+    val replyingTo by viewModel.replyingTo.collectAsStateWithLifecycle()
+    val lastProgress by viewModel.lastProgress.collectAsStateWithLifecycle()
+    val favouriteError by viewModel.favouriteError.collectAsStateWithLifecycle()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
-    val downloadTasks by com.jmread.core.download.DownloadManager.tasks.collectAsState()
-    val downloadedOrders by viewModel.downloadedOrders.collectAsState()
-    val readChapterKeys by viewModel.readChapterKeys.collectAsState()
-    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsState(initial = false)
+    val downloadTasks by com.jmread.core.download.DownloadManager.tasks.collectAsStateWithLifecycle()
+    val downloadedOrders by viewModel.downloadedOrders.collectAsStateWithLifecycle()
+    val readChapterKeys by viewModel.readChapterKeys.collectAsStateWithLifecycle()
+    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsStateWithLifecycle(initialValue = false)
     val displayChapters = remember(chapters, chapterDesc) {
         if (chapterDesc) chapters.asReversed() else chapters
     }

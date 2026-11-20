@@ -23,7 +23,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -419,15 +419,15 @@ fun FollowFeedScreen(
     onComicClick: (String) -> Unit = {},
     viewModel: FollowFeedViewModel = viewModel(),
 ) {
-    val feed by viewModel.feed.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val loadingMore by viewModel.loadingMore.collectAsState()
-    val endReached by viewModel.endReached.collectAsState()
-    val emptyHint by viewModel.emptyHint.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val refreshTick by viewModel.refreshTick.collectAsState()
-    val seenMarker by viewModel.seenMarker.collectAsState()
-    val columns by GridSettings.columnsFlow.collectAsState()
+    val feed by viewModel.feed.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val loadingMore by viewModel.loadingMore.collectAsStateWithLifecycle()
+    val endReached by viewModel.endReached.collectAsStateWithLifecycle()
+    val emptyHint by viewModel.emptyHint.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val refreshTick by viewModel.refreshTick.collectAsStateWithLifecycle()
+    val seenMarker by viewModel.seenMarker.collectAsStateWithLifecycle()
+    val columns by GridSettings.columnsFlow.collectAsStateWithLifecycle()
     val gridState = rememberLazyGridState()
 
     LaunchedEffect(Unit) {
