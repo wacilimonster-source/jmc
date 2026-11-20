@@ -1,5 +1,8 @@
 package com.jmread.ui.channel
 
+import androidx.compose.foundation.layout.WindowInsets
+
+
 import com.jmread.core.model.userMessage
 
 import androidx.compose.foundation.clickable
@@ -103,7 +106,7 @@ fun PromoteScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0),
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->

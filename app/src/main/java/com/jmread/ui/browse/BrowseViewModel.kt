@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 首页浏览 VM：分类 + 内容流（分页）。
- * 走 SourceManager 当前源，源切换后自动重载。
+ * 禁漫单源：直接走 JmRepository，无源切换概念（PiKA fork 残留注释修正）。
  * 支持排序（哔咔服务端 / 禁漫客户端重排）、连载状态筛选与更新日期范围筛选
  * （均为客户端过滤 + 自动补页）。
  *

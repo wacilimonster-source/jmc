@@ -1,5 +1,8 @@
 package com.jmread.ui.browse
 
+import androidx.compose.ui.text.style.TextAlign
+
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -146,7 +149,7 @@ fun ComicGridView(
                     text = endHintText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 16.dp),

@@ -1,5 +1,8 @@
 package com.jmread.ui.reader
 
+import kotlinx.coroutines.delay
+
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -567,7 +570,7 @@ class ReaderViewModel : ViewModel() {
             // 写放大治理（pika perf-arch P1-2 最低成本版）：recent_reads 是整份 100 条 JSON
             // 的 DataStore 重写，连续翻页 1 次/秒的落盘完全冗余——4s 内只落盘一次；
             // 退出阅读器的 final 路径不走 delay（立即落盘），进程死亡最坏丢 4s 内的页码变化
-            kotlinx.coroutines.delay(RECENT_WRITE_DEBOUNCE_MS)
+            delay(RECENT_WRITE_DEBOUNCE_MS)
             runCatchingCancellable {
                 ReaderPrefs.current().recordRecentRead(
                     ref = refNow,

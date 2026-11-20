@@ -1,5 +1,9 @@
 package com.jmread.core.update
 
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.rememberCoroutineScope
+
+
 import com.jmread.core.model.userMessage
 
 import android.content.Context
@@ -202,7 +206,7 @@ object UpdateManager {
             } catch (e: Exception) {
                 lastError = e
                 // 切下一个源前稍等，避免瞬时失败连续重试
-                kotlinx.coroutines.delay(500)
+                delay(500)
             }
         }
         throw lastError ?: java.io.IOException("下载失败：无可用下载源")
@@ -253,7 +257,7 @@ object UpdateManager {
                 val total = body.contentLength()
                 // filesDir 不受"清除缓存"与系统存储回收影响（cacheDir 可能被系统清理，
                 // 导致下载完成到安装之间包丢失、安装器报"解析包失败"）
-                val target = File(context.filesDir, "pika-update.apk")
+                val target = File(context.filesDir, "jm-update.apk")
                 body.byteStream().use { input ->
                     target.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)

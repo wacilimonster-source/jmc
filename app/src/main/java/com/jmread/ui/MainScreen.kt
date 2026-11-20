@@ -1,10 +1,15 @@
 ﻿package com.jmread.ui
 
 import android.net.Uri
+import androidx.compose.material3.Button
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -79,11 +84,11 @@ private fun readerRoute(id: String, order: Int) = "reader/${Uri.encode(id)}/$ord
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
     // ── 18+ 年龄门：首次启动必须确认，之后不再打扰 ──
-    var ageConfirmed by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(SourcePrefs.current().ageConfirmed)
+    var ageConfirmed by remember {
+        mutableStateOf(SourcePrefs.current().ageConfirmed)
     }
     if (!ageConfirmed) {
         AgeGate(
@@ -126,7 +131,7 @@ fun MainScreen() {
     // I09 子页归属：详情/频道等子页不硬归首页——
     // 当前栈顶是顶级 Tab 时跟随栈顶，否则保留来源 Tab 高亮（通知直达兜底为首页）
     var lastTabRoute by androidx.compose.runtime.saveable.rememberSaveable {
-        androidx.compose.runtime.mutableStateOf("home")
+        mutableStateOf("home")
     }
     val activeTabRoute = tabs.firstOrNull { it.route == route?.substringBefore('?') }?.route
     if (activeTabRoute != null && activeTabRoute != lastTabRoute) {
@@ -475,7 +480,7 @@ private fun AgeGate(onConfirm: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(32.dp),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         ) {
             Text(
@@ -491,7 +496,7 @@ private fun AgeGate(onConfirm: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(32.dp))
-            androidx.compose.material3.Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
                 Text("我已满 18 周岁，进入应用")
             }
             Spacer(Modifier.height(8.dp))

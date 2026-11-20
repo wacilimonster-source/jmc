@@ -1,5 +1,11 @@
 package com.jmread.ui.weekly
 
+import androidx.compose.foundation.layout.Arrangement
+
+
+import androidx.compose.foundation.layout.WindowInsets
+
+
 import com.jmread.core.model.userMessage
 
 import androidx.compose.foundation.clickable
@@ -156,7 +162,7 @@ fun WeeklyScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0),
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->
@@ -177,7 +183,7 @@ fun WeeklyScreen(
             }
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(periods, key = { it.id }) { p ->
                     FilterChip(

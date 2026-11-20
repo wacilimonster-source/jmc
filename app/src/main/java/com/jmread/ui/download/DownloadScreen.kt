@@ -1,5 +1,11 @@
 package com.jmread.ui.download
 
+import androidx.compose.material3.SnackbarResult
+
+
+import androidx.compose.material3.SnackbarDuration
+
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -117,9 +123,9 @@ fun DownloadScreen(
                 val result = AppSnackbar.hostState.showSnackbar(
                     message = "已导出 ${state.fileName}",
                     actionLabel = "分享",
-                    duration = androidx.compose.material3.SnackbarDuration.Long,
+                    duration = SnackbarDuration.Long,
                 )
-                if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                if (result == SnackbarResult.ActionPerformed) {
                     shareZip(context, state.uri)
                 }
                 DownloadExporter.consume()
@@ -128,9 +134,9 @@ fun DownloadScreen(
                 val result = AppSnackbar.hostState.showSnackbar(
                     message = state.message,
                     actionLabel = if (lastExport != null) "重试" else null,
-                    duration = androidx.compose.material3.SnackbarDuration.Long,
+                    duration = SnackbarDuration.Long,
                 )
-                if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                if (result == SnackbarResult.ActionPerformed) {
                     lastExport?.let { launchExport(it) }
                 }
                 DownloadExporter.consume()
@@ -161,9 +167,9 @@ fun DownloadScreen(
             val result = AppSnackbar.hostState.showSnackbar(
                 message = if (newOnes.size == 1) "下载失败" else "${newOnes.size} 个任务下载失败",
                 actionLabel = "重试全部",
-                duration = androidx.compose.material3.SnackbarDuration.Long,
+                duration = SnackbarDuration.Long,
             )
-            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+            if (result == SnackbarResult.ActionPerformed) {
                 newOnes.forEach { DownloadManager.retry(it) }
             }
         }

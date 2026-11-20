@@ -1,5 +1,11 @@
 package com.jmread.ui.mine
 
+import androidx.compose.foundation.layout.Box
+
+
+import androidx.compose.ui.text.style.TextAlign
+
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -101,7 +107,7 @@ fun MineScreen(
         }
     }
 
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -211,7 +217,7 @@ fun MineScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -221,7 +227,7 @@ fun MineScreen(
         )
 
         if (showLogoutDialog) {
-            androidx.compose.material3.AlertDialog(
+            AlertDialog(
                 onDismissRequest = { showLogoutDialog = false },
                 title = { Text("退出登录") },
                 text = {

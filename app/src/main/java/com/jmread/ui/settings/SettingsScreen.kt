@@ -1,5 +1,8 @@
 package com.jmread.ui.settings
 
+import androidx.compose.material3.Button
+
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -414,7 +417,7 @@ private fun LibrarySyncSection() {
     }
 
     if (showConfirm) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { if (!running) showConfirm = false },
             title = { Text("同步本地书架") },
             text = { Text("把本地书架中云端还没有的作品推送到云端收藏？只推缺失部分，不影响已有收藏。") },
@@ -451,7 +454,7 @@ private fun LibrarySyncSection() {
 @Composable
 private fun UpdateSection() {
     val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     // 检查结果留在本地（检查很快，随页面销毁无所谓）；下载态以 UpdateManager 为准
     // （app 级作用域）：下载中关对话框/离开设置页都不再静默取消，回来进度仍可见、可重试
     var checkState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
@@ -576,20 +579,20 @@ private fun UpdateSection() {
                 when (state) {
                     is UpdateUiState.Found -> {
                         val info = (state as UpdateUiState.Found).info
-                        androidx.compose.material3.Button(onClick = {
+                        Button(onClick = {
                             // 下载跑在 UpdateManager 的 app 级作用域，页面销毁不影响
                             UpdateManager.startDownload(context, info)
                         }) { Text("下载") }
                     }
                     is UpdateUiState.DownloadFailed -> {
-                        androidx.compose.material3.Button(onClick = {
+                        Button(onClick = {
                             lastFound?.let { UpdateManager.startDownload(context, it) }
                         }) { Text("重试") }
                     }
                     UpdateUiState.Downloaded -> {
                         val apk = (dlState as? UpdateManager.DownloadUi.Done)?.apk
                         if (apk != null) {
-                            androidx.compose.material3.Button(onClick = {
+                            Button(onClick = {
                                 UpdateManager.install(context, apk)
                             }) { Text("安装") }
                         } else {
@@ -624,7 +627,7 @@ private fun UpdateSection() {
 @Composable
 private fun CacheCleanSection() {
     val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     var statsText by remember { mutableStateOf("统计中…") }
     var clearing by remember { mutableStateOf(false) }
 

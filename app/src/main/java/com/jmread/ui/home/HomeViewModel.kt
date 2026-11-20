@@ -1,5 +1,8 @@
 package com.jmread.ui.home
 
+import kotlinx.coroutines.delay
+
+
 import com.jmread.core.model.userMessage
 
 import androidx.lifecycle.ViewModel
@@ -314,7 +317,7 @@ class HomeViewModel : ViewModel() {
         _rankCacheAt.value = null
         rankJob = viewModelScope.launch {
             try {
-                if (startDelayMs > 0) kotlinx.coroutines.delay(startDelayMs)
+                if (startDelayMs > 0) delay(startDelayMs)
 
                 // 1) 缓存先展示：读盘/JSON 解码在 IO，代际校验后才发布
                 val cached = withContext(Dispatchers.IO) { RankCache.load(type) }

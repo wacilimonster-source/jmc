@@ -1,6 +1,7 @@
 package com.jmread.core.scramble
 
 import kotlinx.coroutines.CancellationException
+import androidx.compose.foundation.layout.height
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher

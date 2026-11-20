@@ -1,5 +1,11 @@
 package com.jmread.ui.follow
 
+import kotlinx.coroutines.delay
+
+
+import androidx.compose.foundation.layout.WindowInsets
+
+
 import com.jmread.core.model.userMessage
 
 import androidx.compose.foundation.layout.Box
@@ -279,7 +285,7 @@ class FollowFeedViewModel : ViewModel() {
             if (it.type == FollowTargetType.KEYWORD && it.name.isNotBlank() && it.name.split(Regex("\\s+")).size > 1) 1 else 0
         }
         for (target in ordered.filter { targetEnded[it.key] != true }) {
-            if (requested) kotlinx.coroutines.delay(TARGET_REQUEST_INTERVAL_MS)
+            if (requested) delay(TARGET_REQUEST_INTERVAL_MS)
             requested = true
             val page = (targetPages[target.key] ?: 0) + 1
             result += try {
@@ -386,7 +392,7 @@ class FollowFeedViewModel : ViewModel() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 last = e
-                if (attempt < 2) kotlinx.coroutines.delay(500)
+                if (attempt < 2) delay(500)
             }
         }
         throw last ?: RuntimeException("search failed")
@@ -461,7 +467,7 @@ fun FollowFeedScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0),
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->

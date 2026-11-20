@@ -1,6 +1,7 @@
 package com.jmread.core.scramble
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.height
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint

@@ -1,5 +1,8 @@
 package com.jmread.ui.search
 
+import androidx.compose.material3.Button
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -616,7 +619,7 @@ fun SearchScreen(
                     }) { Text("重置条件") }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { showFilterSheet = false }) { Text("取消") }
-                    androidx.compose.material3.Button(
+                    Button(
                         onClick = {
                             showFilterSheet = false
                             val newSort = ComicSort.valueOf(draftSortName)
