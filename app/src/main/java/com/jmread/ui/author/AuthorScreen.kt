@@ -1,5 +1,6 @@
 package com.jmread.ui.author
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.jmread.ui.common.copyToClipboard
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -43,7 +52,7 @@ import com.jmread.core.JmRepository
 import com.jmread.ui.browse.ComicGridView
 import com.jmread.ui.browse.PaginationBar
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AuthorComicsScreen(
     author: String,
@@ -92,16 +101,34 @@ fun AuthorComicsScreen(
         favourited = com.jmread.data.AuthorFavourites.contains(author)
     }
 
+    // 复制反馈（对标 PiKA v1.12.0：作者页复制图标 + 标题长按，Snackbar 统一反馈）
+    val copyScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val copyContext = LocalContext.current
+    fun copyAuthorName() {
+        copyScope.launch { snackbarHostState.showSnackbar(copyToClipboard(copyContext, "作者名", author)) }
+    }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(author, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        author,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { copyAuthorName() }),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
+                    IconButton(onClick = { copyAuthorName() }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "复制作者名")
+                    }
                     IconButton(onClick = {
                         if (favourited) {
                             com.jmread.data.AuthorFavourites.remove(author)

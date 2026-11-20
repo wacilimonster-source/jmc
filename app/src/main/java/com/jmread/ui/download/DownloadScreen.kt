@@ -411,10 +411,9 @@ private fun ComicGroupCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AsyncImage(
-                model = task.coverUrl,
+            com.jmread.ui.common.RetryableCoverImage(
+                url = task.coverUrl,
                 contentDescription = task.comicTitle,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(10.dp)),

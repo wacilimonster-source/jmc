@@ -8,6 +8,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,6 +129,7 @@ fun ComicDetailScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // 下载完成通知在 Android 13+ 需要运行时权限。此前只在设置页手动开关时申请，
     // 而开关默认是开着的，新装用户永远不会收到通知；这里在真正发起下载时补一次申请。
@@ -187,6 +196,15 @@ fun ComicDetailScreen(
         // 从阅读器返回时页面会被重新组合：顺手刷新「继续阅读」进度
         viewModel.refreshProgress()
     }
+    // ON_RESUME 兜底刷新（对标 PiKA v1.12.3-3）：无论组合是否重建，回到前台/返回详情
+    // 都立即刷新本地进度，「继续阅读」按钮与上次读到的话/页保持实时
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshProgress()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(favouriteError) {
         favouriteError?.let {
@@ -219,6 +237,38 @@ fun ComicDetailScreen(
                             )
                         }
                     }
+                    // 对标 PiKA v1.12.0：顶栏可见复制入口（复制作品名/作者名）
+                    comic?.let { c ->
+                        var menuOpen by remember { mutableStateOf(false) }
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("复制作品名") },
+                                onClick = {
+                                    menuOpen = false
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            com.jmread.ui.common.copyToClipboard(context, "作品名", c.title),
+                                        )
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("复制作者名") },
+                                onClick = {
+                                    menuOpen = false
+                                    val joined = c.authors.joinToString(" / ")
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            com.jmread.ui.common.copyToClipboard(context, "作者名", joined),
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
                 },
                 windowInsets = WindowInsets(0, 0),
             )
@@ -237,6 +287,8 @@ fun ComicDetailScreen(
                         comic = c,
                         favourited = favourited,
                         onOpenAuthor = onOpenAuthor,
+                        onCopyTitle = { scope.launch { snackbarHostState.showSnackbar(com.jmread.ui.common.copyToClipboard(context, "作品名", c.title)) } },
+                        onCopyAuthor = { a -> scope.launch { snackbarHostState.showSnackbar(com.jmread.ui.common.copyToClipboard(context, "作者名", a)) } },
                         actions = if (landscape) detailActions else null,
                     )
                 }
@@ -759,10 +811,9 @@ private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
                     .aspectRatio(3f / 4f),
             ) {
                 comic.coverUrl?.let {
-                    AsyncImage(
-                        model = it,
+                    com.jmread.ui.common.RetryableCoverImage(
+                        url = it,
                         contentDescription = comic.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -878,11 +929,14 @@ private fun DetailActions(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComicHeader(
     comic: ComicDetail,
     favourited: Boolean,
     onOpenAuthor: (String) -> Unit,
+    onCopyTitle: () -> Unit = {},
+    onCopyAuthor: (String) -> Unit = {},
     actions: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -893,10 +947,9 @@ private fun ComicHeader(
     ) {
         Box(Modifier.width(110.dp).aspectRatio(3f / 4f)) {
             comic.coverUrl?.let {
-                AsyncImage(
-                    model = it,
+                com.jmread.ui.common.RetryableCoverImage(
+                    url = it,
                     contentDescription = comic.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -908,6 +961,8 @@ private fun ComicHeader(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                // 对标 PiKA v1.12.0：长按标题一步复制作品名
+                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onCopyTitle),
             )
             Spacer(Modifier.height(4.dp))
             // 多作者逐个可点（作者维度搜索 main_tag=2）；作者数据是数组
@@ -923,7 +978,11 @@ private fun ComicHeader(
                             text = (if (i > 0) " / " else "") + a,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onOpenAuthor(a) },
+                            // 点按进作者页（语义不变）；长按复制该作者名
+                            modifier = Modifier.combinedClickable(
+                                onClick = { onOpenAuthor(a) },
+                                onLongClick = { onCopyAuthor(a) },
+                            ),
                         )
                     }
                 }

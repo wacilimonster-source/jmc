@@ -225,10 +225,10 @@ private fun ComicCard(
                 .background(MaterialTheme.colorScheme.surfaceVariant, ComicGridSpec.CoverShape),
         ) {
             comic.coverUrl?.let { cover ->
-                AsyncImage(
-                    model = cover,
+                // v0.8.2：封面失败可重试覆盖层（对标 PiKA v1.12.3-9）
+                com.jmread.ui.common.RetryableCoverImage(
+                    url = cover,
                     contentDescription = comic.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(ComicGridSpec.CoverShape),

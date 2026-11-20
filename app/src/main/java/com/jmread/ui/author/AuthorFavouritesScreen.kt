@@ -163,10 +163,9 @@ private fun AuthorFavouriteRow(
                     .clip(RoundedCornerShape(6.dp)),
             ) {
                 if (entry.coverUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = entry.coverUrl,
+                    com.jmread.ui.common.RetryableCoverImage(
+                        url = entry.coverUrl,
                         contentDescription = entry.author,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

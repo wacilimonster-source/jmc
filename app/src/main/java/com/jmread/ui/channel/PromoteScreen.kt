@@ -196,10 +196,9 @@ private fun PromoteCard(comic: ComicSummary, onClick: () -> Unit) {
                     .aspectRatio(3f / 4f),
             ) {
                 comic.coverUrl?.let {
-                    AsyncImage(
-                        model = it,
+                    com.jmread.ui.common.RetryableCoverImage(
+                        url = it,
                         contentDescription = comic.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

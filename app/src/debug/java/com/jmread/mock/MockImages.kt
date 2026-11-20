@@ -30,6 +30,13 @@ object MockImages {
         val isPhoto = url.contains("/media/photos/")
         val isAlbum = url.contains("/media/albums/")
         if (!isPhoto && !isAlbum) return null
+        // 故障注入同样作用于图片路径：断网=抛 IOException（走真实失败态/重试覆盖层），
+        // 慢网=延迟后成功。否则封面永远成功，故障注入只覆盖 API 不覆盖图片，保真度不足。
+        when (MockState.fault) {
+            MockFault.OFFLINE -> throw java.io.IOException("模拟故障注入：断网（jm-mock 图片）")
+            MockFault.SLOW -> kotlinx.coroutines.delay(2_000)
+            MockFault.ERROR500, MockFault.TRUNCATE, MockFault.NONE -> Unit
+        }
         synchronized(cache) { cache[url]?.let { return it } }
         val bytes = if (isPhoto) photoBytes(url) else coverBytes(url)
         synchronized(cache) { if (cache.size < 256) cache[url] = bytes }
