@@ -35,7 +35,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class JmApp : Application() {
+// open 仅为了 debug 变体的 MockJmApp 覆盖（模拟数据复测层，见 core/debug/DebugHooks）
+open class JmApp : Application() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -101,6 +102,8 @@ class JmApp : Application() {
                     .components {
                         add(JmUrlKeyer())
                         add(JmImageFetcher.Factory())
+                        // debug 模拟数据层（release 恒为 null）：最外层短路占位图
+                        com.jmread.core.debug.DebugHooks.coilInterceptor?.let { add(it) }
                         // 管线拦截器顺序：错误取证在最外，记录最终结果；随后是管线级
                         // 重试（覆盖响应体中断/解码失败）；最内层合流，减少同图重复下载。
                         add(com.jmread.core.scramble.ImageErrorLoggingInterceptor())

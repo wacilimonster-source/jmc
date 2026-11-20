@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
 
     /** 通知点击携带 open_route=comic/{id}：只接受纯数字作品路由，其它忽略。 */
     private fun handleIntent(intent: Intent?) {
+        // 调试深链（jmread://mock?...）：debug 变体装配的钩子优先消费；release 恒为 null
+        val data = intent?.data
+        if (data != null && com.jmread.core.debug.DebugHooks.deeplinkHandler?.invoke(data) == true) return
         val route = intent?.getStringExtra("open_route") ?: return
         if (!route.startsWith("comic/")) return
         val id = route.removePrefix("comic/")

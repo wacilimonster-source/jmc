@@ -1,6 +1,6 @@
 {
-  "sha256": "053c8880d15c01025dc88fa0ffd4afb50353cc54bf11d0a344fe68a47266af94",
-  "version": "0.7.3",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.7.3.apk",
-  "notes": "JM Reader 0.7.3 体验修复与稳定性：\n1. Android 13+ 首次下载时申请通知权限，下载完成提醒不再默认静默\n2. 底栏重复点击当前标签回到该 Tab 根页，不再停留在详情等子页\n3. 榜单下拉刷新指示器不再遮挡档位 chip\n4. 搜索框清空回到初始态，搜索历史入口恢复可用\n5. 下载失败章节提供文字「重试」按钮，整行点击也可重试\n6. 横屏详情将主按钮并入封面右侧信息列，首屏完整可见\n7. 手动域名不可用时自动切换并明确提示（Snackbar + 设置页实时标签）\n8. 大字体下每行数量设置补充「建议 2 列」提示"
+  "sha256": "ed12a75389cc074ad0423297c20607e4857e988dec2c71b807a2551086c554c7",
+  "version": "0.8.0",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.8.0.apk",
+  "notes": "JM Reader 0.8.0 模拟数据复测基建（对标 PiKA 工程实践·第 1/10 轮）：\n1. 新增 debug 变体模拟数据层：API/图片/头像全部本地模拟，与单测 fixture 同源，复测不再依赖真实网络与账号\n2. 故障注入通道：断网/慢网/5xx/响应截断四种形态，验证错误路径（对标 PiKA 截断代理实践）\n3. 调试深链 jmread://mock 切换模拟开关与故障形态\n4. 模拟模板 8 条 JVM 单测固化（分页合成/详情对齐/乱序安全约束）\n5. 单测门禁 196/196 通过；模拟器全链路复测通过（榜单/详情/阅读器/搜索/故障注入）\n6. 正式包行为零变化（模拟层仅存在于 debug 变体）"
 }

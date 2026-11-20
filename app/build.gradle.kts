@@ -13,8 +13,8 @@ android {
         applicationId = "com.jmread"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.7.3"
+        versionCode = 24
+        versionName = "0.8.0"
     }
 
     signingConfigs {
@@ -49,6 +49,13 @@ android {
     }
     lint {
         checkReleaseBuilds = false
+    }
+    sourceSets {
+        // debug 模拟数据层：fixture 与单测同源（dump-fixtures.mjs 产物），
+        // 打包进 debug assets 的 jm/ 子目录（assets.srcDir 的内容平铺在 assets 根，故指向 resources）
+        getByName("debug") {
+            assets.srcDir("src/test/resources")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

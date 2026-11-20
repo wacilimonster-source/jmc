@@ -247,6 +247,8 @@ internal suspend fun fetchJmImageBytes(
     manualRetry: Boolean = false,
     useScheduler: Boolean = true,
 ): ByteArray = withContext(Dispatchers.IO) {
+    // debug 模拟数据层（release 恒为 null）：本地生成图片字节，跳过 CDN 与重试预算
+    com.jmread.core.debug.DebugHooks.imageBytes?.invoke(url)?.let { return@withContext it }
     val parsed = url.toHttpUrlOrNull() ?: throw IOException("非法图片 URL: $url")
     val pathAndQuery = parsed.encodedPath + (parsed.encodedQuery?.let { "?$it" } ?: "")
     // 手动重试是一次新的用户意图：清空旧预算，重新获得 4 次传输

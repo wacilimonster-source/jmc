@@ -52,7 +52,10 @@ object JmClient {
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .cookieJar(InlineCookieJar)
-        ).build()
+        )
+            // debug 模拟数据层（release 恒为 null）：按 path 返回 fixture，短路在签名/TLS 之前
+            .apply { com.jmread.core.debug.DebugHooks.apiInterceptor?.let { addInterceptor(it) } }
+            .build()
     }
 
     private object InlineCookieJar : CookieJar {
