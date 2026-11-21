@@ -9,13 +9,18 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Explore
@@ -26,20 +31,21 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -152,12 +158,22 @@ fun MainScreen() {
     Scaffold(
         snackbarHost = { SnackbarHost(AppSnackbar.hostState) },
         bottomBar = {
-            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把标签栏高度还给内容区
-            // 标签栏保持 M3 默认 80dp：选中态是「指示胶囊 + 图标 + 文字」三段堆叠，
-            // 压到 64dp 时选中项文字会被裁掉（底部标签显示不全的根因）
+            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把标签栏高度还给内容区。
+            // 压缩底栏高度（与 pika v1.12.3 同款方案，两项目底栏高度保持一致）：M3
+            // NavigationBar 内部 Row 自带 heightIn(min = 80dp)，min 约束压不下去；若直接
+            // height(64dp) 钳总高，内部 windowInsetsPadding 会先吃掉手势条 inset（~24dp），
+            // 图标+标签只剩 ~40dp 会被裁切。因此把 inset 挪到外部 padding，windowInsets
+            // 置零，让 64dp 全部给内容：64dp 恰好等于 NavigationBarItem（图标+标签）自身
+            // 最小高度，字体缩放 1.3 时（标签 ~14.3sp）内容仍放得下。
+            // 背景色提前铺，避免手势条区域露出 Scaffold 底色。
             if (!hideBottomBar) {
                 NavigationBar(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surface)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .height(64.dp),
                     containerColor = MaterialTheme.colorScheme.surface,
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                 ) {
                     tabs.forEach { tab ->
                         val selected = selectedTabRoute == tab.route
@@ -494,13 +510,13 @@ fun MainScreen() {
 /** 首启 18+ 确认页：内容性质声明，本地记住选择 */
 @Composable
 private fun AgeGate(onConfirm: () -> Unit) {
-    androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
+    Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(32.dp),
             verticalArrangement = Arrangement.Center,
-            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = "JM Reader",

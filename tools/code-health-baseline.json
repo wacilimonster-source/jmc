@@ -1,12 +1,12 @@
 {
   "files": 106,
-  "lines": 25633,
-  "fqn_lines": 59,
+  "lines": 25930,
+  "fqn_lines": 56,
   "large_files": 4,
   "long_functions": 3,
   "run_catching_in_coroutines": 96,
   "todo_markers": 0,
   "bang_bang": 6,
   "duplicate_windows": 8,
-  "test_files": 33
+  "test_files": 34
 }

@@ -23,8 +23,8 @@ object JmCrypto {
     /** 请求签名密钥（APP_TOKEN_SECRET / APP_DATA_SECRET 同源） */
     private const val APP_SECRET = "185Hcomic3PAPP7R"
 
-    /** 客户端版本号兜底值（2026-10-25 线上 jm3_version=2.1.12；运行时被 /setting 刷新覆盖） */
-    const val FALLBACK_VERSION = "2.1.12"
+    /** 客户端版本号兜底值（2026-11-21 线上 jm3_version=2.1.14；运行时被 /setting 刷新覆盖） */
+    const val FALLBACK_VERSION = "2.1.14"
 
     val appVersion: String
         get() = SourcePrefs.current().jmVersion ?: FALLBACK_VERSION

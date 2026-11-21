@@ -61,10 +61,13 @@ fun PaginationBar(
     val loaded = if (progressMode) loadedPages.coerceIn(1, totalPages) else totalPages
 
     Row(
+        // 上下留白不对称是有意的：上方 2dp 补偿网格自带的 12dp 底部 contentPadding
+        // （ComicGridView），使「作品↔页码」与「页码↔底栏」两侧视觉间距一致（各约 14dp）。
+        // 内容区仍为 32dp，页码块/箭头/跳页按钮布局不受影响。
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
-            .padding(8.dp),
+            .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!summary.isNullOrBlank()) {
