@@ -159,6 +159,9 @@ fun TagScreen(
     }
 
     Scaffold(
+        // 外层 NavHost padding 已含状态栏/底栏 inset，Scaffold 默认再吃一遍 systemBars
+        // 会在分页条与底栏之间叠出一条空白（bottom ~24dp），故整体清零（同 CategoryScreen）
+        contentWindowInsets = WindowInsets(0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
