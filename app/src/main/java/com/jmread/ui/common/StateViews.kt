@@ -51,12 +51,13 @@ fun ComicGridSkeleton(
         label = "skeleton-alpha",
     )
     val placeholder = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
+    val metrics = com.jmread.ui.browse.ComicGridSpec.metricsFor(columns)
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.H_GAP_DP.dp),
-        verticalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.V_GAP_DP.dp),
+        contentPadding = PaddingValues(horizontal = metrics.horizontalPadding.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(metrics.columnGap.dp),
+        verticalArrangement = Arrangement.spacedBy(metrics.rowGap.dp),
         userScrollEnabled = false,
     ) {
         items(itemCount) {

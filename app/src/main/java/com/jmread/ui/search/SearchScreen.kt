@@ -52,7 +52,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmread.core.model.ComicSort
 import com.jmread.ui.browse.ComicGridView
@@ -152,6 +155,28 @@ fun SearchScreen(
         modifier = Modifier
             .fillMaxSize(),
     ) {
+        // 页头大标题 + 右上 eyebrow（装饰性字距小标，不承载操作；对标 pika v1.11.0/1.11.1-7）
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = "搜索",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "DISCOVER",
+                style = TextStyle(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 10.sp,
+                    letterSpacing = 2.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         // Material3 的图标槽按「lambda 是否为 null」决定是否保留空间；
         // 传一个条件返回空的 lambda 也会左右各留出图标位，导致占位文字看起来居中。
         val leadingIcon: @Composable (() -> Unit)? = if (onBack != null) {
@@ -174,10 +199,24 @@ fun SearchScreen(
             listState.requestScrollToItem(0)
         }
         val showClearDraft = input.isNotBlank()
+        // 提交动作（与键盘搜索完全同一路径）：框内可见「搜索」按钮（对标 pika v1.11.1-1）
+        fun submitSearch() {
+            focusManager.clearFocus()
+            // 新查询必须把筛选页码与滚动位置一起归零，否则会停在上一个查询的第 N 页
+            filterPage = 1
+            viewModel.search(input.trim(), page = 1)
+            listState.requestScrollToItem(0)
+        }
         val trailingIcon: @Composable (() -> Unit)? = if (showClearDraft) {
             {
-                IconButton(onClick = { clearQueryAndReset() }) {
-                    Icon(Icons.Filled.Close, contentDescription = "清空并返回搜索初始态")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = { submitSearch() },
+                        enabled = input.isNotBlank(),
+                    ) { Text("搜索") }
+                    IconButton(onClick = { clearQueryAndReset() }) {
+                        Icon(Icons.Filled.Close, contentDescription = "清空并返回搜索初始态")
+                    }
                 }
             }
         } else {
@@ -204,13 +243,7 @@ fun SearchScreen(
                 )
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = {
-                focusManager.clearFocus()
-                // 新查询必须把筛选页码与滚动位置一起归零，否则会停在上一个查询的第 N 页
-                filterPage = 1
-                viewModel.search(input.trim(), page = 1)
-                listState.requestScrollToItem(0)
-            }),
+            keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
             leadingIcon = leadingIcon,
             trailingIcon = trailingIcon,
             modifier = Modifier

@@ -392,25 +392,35 @@ private fun FollowTab(
             val newCount = if (newUntil.isBlank()) 0 else comics.count {
                 it.updatedAt.isNotBlank() && it.updatedAt > newUntil
             }
+            // 区头双行文案（对标 pika v1.11.1-8：关注更新 / 你关注的故事，接着发生）
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 8.dp, top = 4.dp),
             ) {
-                Text(
-                    text = "我的关注",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                if (newCount > 0) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "关注更新",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        if (newCount > 0) {
+                            Text(
+                                text = "有更新 · $newCount 条",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
                     Text(
-                        text = "· $newCount 条新内容",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 6.dp),
+                        text = "你关注的故事，接着发生",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onManage) { Text("管理") }
             }
             when {
@@ -498,16 +508,18 @@ private fun RankTab(
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 16.dp, top = 4.dp),
         ) {
-            Text(
-                text = "人气榜单",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "近期热门",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "人气榜单",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    text = "在这里，发现你的偏爱",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -551,13 +563,14 @@ private fun RankTab(
                 .weight(1f)
                 .fillMaxWidth(),
         ) {
+            val metrics = com.jmread.ui.browse.ComicGridSpec.metricsFor(columns)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 state = gridState,
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.H_GAP_DP.dp),
-                verticalArrangement = Arrangement.spacedBy(com.jmread.ui.browse.ComicGridSpec.V_GAP_DP.dp),
+                contentPadding = PaddingValues(horizontal = metrics.horizontalPadding.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(metrics.columnGap.dp),
+                verticalArrangement = Arrangement.spacedBy(metrics.rowGap.dp),
             ) {
                 when {
                     comics.isEmpty() && error != null && !loading -> item(
@@ -667,12 +680,18 @@ private fun RandomTab(
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 8.dp, top = 4.dp),
             ) {
-                Text(
-                    text = "从近期热门中随机挑选",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "随便看看",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = "偶遇下一本喜欢的故事",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 TextButton(onClick = onRefresh) { Text("换一批") }
             }
             when {

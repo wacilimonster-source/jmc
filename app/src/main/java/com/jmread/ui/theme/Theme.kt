@@ -2,6 +2,9 @@ package com.jmread.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Shapes
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -90,6 +93,15 @@ private val LightColorScheme = lightColorScheme(
 fun successColor(): androidx.compose.ui.graphics.Color =
     if (MaterialTheme.colorScheme.background == BackgroundDark) SuccessDark else SuccessLight
 
+/** 形状体系（对标 pika v1.11.0 design-tokens）：按钮/筛选 chip 10、分组卡 14、弹层 24 */
+private val JmShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
+)
+
 @Composable
 fun PiKATheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -100,6 +112,7 @@ fun PiKATheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = typography,
+        shapes = JmShapes,
         content = content,
     )
 }

@@ -17,12 +17,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -64,14 +71,15 @@ import kotlinx.coroutines.launch
 private data class TabItem(
     val route: String,
     val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val iconSelected: ImageVector,
+    val iconUnselected: ImageVector,
 )
 
 private val tabs = listOf(
-    TabItem("home", "首页", Icons.Filled.Home),
-    TabItem("discover", "发现", Icons.Filled.Explore),
-    TabItem("search", "搜索", Icons.Filled.Search),
-    TabItem("mine", "我的", Icons.Filled.Person),
+    TabItem("home", "首页", Icons.Filled.Home, Icons.Outlined.Home),
+    TabItem("discover", "发现", Icons.Filled.Explore, Icons.Outlined.Explore),
+    TabItem("search", "搜索", Icons.Filled.Search, Icons.Outlined.Search),
+    TabItem("mine", "我的", Icons.Filled.Person, Icons.Outlined.Person),
 )
 
 /** 需要整屏展示、不应挂底部标签栏的路由前缀 */
@@ -148,7 +156,9 @@ fun MainScreen() {
             // 标签栏保持 M3 默认 80dp：选中态是「指示胶囊 + 图标 + 文字」三段堆叠，
             // 压到 64dp 时选中项文字会被裁掉（底部标签显示不全的根因）
             if (!hideBottomBar) {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ) {
                     tabs.forEach { tab ->
                         val selected = selectedTabRoute == tab.route
                         NavigationBarItem(
@@ -170,13 +180,22 @@ fun MainScreen() {
                                 }
                             },
                             icon = {
+                                // 对标 pika v1.11.0：选中实心 / 未选中描边，22dp
                                 Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = null,
+                                    imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.size(22.dp),
                                 )
                             },
                             alwaysShowLabel = true,
-                            label = { Text(tab.label, fontSize = 12.sp) },
+                            label = { Text(tab.label, fontSize = 11.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            ),
                         )
                     }
                 }

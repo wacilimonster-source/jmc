@@ -58,8 +58,17 @@ import com.jmread.core.model.ComicSummary
 /** 系列网格规格：横向间距 12dp、纵向 20dp；封面 3:4、10dp 圆角 */
 object ComicGridSpec {
     val CoverShape = RoundedCornerShape(10.dp)
-    const val H_GAP_DP = 12
-    const val V_GAP_DP = 20
+
+    /**
+     * 网格自适应间距（对标 pika v1.11.2）：两列大封面配大边距（页边距 24/列距 20），
+     * 三列小封面收窄（页边距 12/列距 8/行距 16），缩小两/三列的视觉重量差。
+     * 网格与骨架屏共用本函数（单一来源，AGENTS §3.1）。
+     */
+    data class GridMetrics(val horizontalPadding: Int, val columnGap: Int, val rowGap: Int)
+
+    fun metricsFor(columns: Int): GridMetrics =
+        if (columns <= 2) GridMetrics(horizontalPadding = 24, columnGap = 20, rowGap = 20)
+        else GridMetrics(horizontalPadding = 12, columnGap = 8, rowGap = 16)
 }
 
 /** 系列卡片标题字阶：两列 14/20/600，三列 12/18/600；最多两行由调用处控制 */
@@ -101,13 +110,14 @@ fun ComicGridView(
 ) {
     val statusVersion by com.jmread.data.ReaderStatus.version.collectAsStateWithLifecycle()
     val columns by com.jmread.data.GridSettings.columnsFlow.collectAsStateWithLifecycle()
+    val metrics = ComicGridSpec.metricsFor(columns)
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(ComicGridSpec.H_GAP_DP.dp),
-        verticalArrangement = Arrangement.spacedBy(ComicGridSpec.V_GAP_DP.dp),
+        contentPadding = PaddingValues(horizontal = metrics.horizontalPadding.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(metrics.columnGap.dp),
+        verticalArrangement = Arrangement.spacedBy(metrics.rowGap.dp),
     ) {
         // PERF contentType：卡片与尾部加载/终态页脚复用组成差异大，给复用器明确类型提示
         items(comics, key = { it.ref }, contentType = { "comic-card" }) { comic ->

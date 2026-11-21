@@ -73,7 +73,7 @@ val typography = Typography(
         lineHeight = 20.sp,
         fontWeight = FontWeight.SemiBold,
     ),
-    bodyLarge = body.copy(fontSize = 15.sp, lineHeight = 22.sp),
+    bodyLarge = body,
     bodyMedium = body,
     bodySmall = secondary,
     labelLarge = TextStyle(
@@ -81,6 +81,6 @@ val typography = Typography(
         lineHeight = 20.sp,
         fontWeight = FontWeight.Medium,
     ),
-    labelMedium = secondary.copy(fontWeight = FontWeight.Medium),
-    labelSmall = auxiliary,
+    labelMedium = secondary.copy(fontWeight = FontWeight.Medium),  // 12/18·Medium
+    labelSmall = auxiliary.copy(fontWeight = FontWeight.Medium),  // 11/16·Medium（角标可读性，对标 pika）
 )

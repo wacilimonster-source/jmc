@@ -39,8 +39,9 @@
 | 反馈与操作打磨 | ✅ 0.8.7（R8/10，对标 PiKA ux-polish Q8/Q11）：下载三类进度条平滑、关注关键词删除可撤销（+3 条单测） |
 | 阅读器深水区 | ✅ 0.8.8（R9/10，对标 PiKA v1.11.1-5 + 0.7.3 遗留项）：翻页页码小标 X/N、条漫黑边提示（检测→一键切滚动流/忽略） |
 | 发版工程化 + 全量回归 | ✅ 0.9.0（R10/10）：tools/release-check.mjs 发版自检（版本/APK/sha256/notes/code-health/单测七项）+ 全量模拟数据回归收口 |
+| 交互与视觉对标 | ✅ 0.9.1（第 11 轮，docs/pika-visual-parity-20261122.md）：底栏双态图标/胶囊、网格自适应间距、首页三区头双行文案、搜索页头+框内搜索按钮、eyebrow 装饰标、全局 Shapes、字阶对齐；深色+字体1.3 实测（reports/visual-parity-0.9.1-test.md） |
 
-当前版本：`versionCode 34` / `versionName 0.9.0`（2026-11-21，PiKA 对标十轮完成，见 reports/r1-r10-*-test.md 与 docs/pika-benchmark-roadmap-20261121.md）。
+当前版本：`versionCode 35` / `versionName 0.9.1`（2026-11-22，交互视觉对标轮，见 reports/visual-parity-0.9.1-test.md）。
 
 > **金丝雀盯梢的环境漂移**（2026-10-25 `jm-api-check` 实测）：
 > 1. `jm3_version` 升为 2.1.12 —— 兜底值已同步更新（JmCrypto / jm-lib）。

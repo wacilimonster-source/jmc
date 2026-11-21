@@ -1,6 +1,6 @@
 {
-  "sha256": "91df3059d28754dd9a7adbec526c2182f3c2a70664f9fde7c15c347a70c9583c",
-  "version": "0.9.0",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.9.0.apk",
-  "notes": "JM Reader 0.9.0 —— PiKA 对标十轮优化收口版：\n本版收束 0.8.0→0.8.8 九轮对标优化的全部成果，并完成发版工程化：\n1. 新增 tools/release-check.mjs 发版自检：版本号/APK/sha256/apkUrl/notes/代码健康度/单测七项自动校验\n2. 十轮全量回归通过：冷启动/榜单/搜索/详情/阅读器双模式/条漫切片/下载/书架/设置全链路（模拟数据）\n3. 累计成果：模拟数据复测基建+故障注入、错误文案映射与三态、详情交互对齐（复制/续读刷新/封面重试）、作者署名解析与片段搜索、性能两轮（生命周期感知/重组热点/闪屏/写放大）、工程门禁（AGENTS.md+code-health）、反馈打磨（进度平滑/删除撤销）、阅读器深水区（页码小标/条漫黑边提示）\n4. 单测 188→221 条全绿；code-health 结构指标入基线门禁；每轮复测报告见 reports/r1…r10-*-test.md"
+  "sha256": "b31348905600865015707e22465f4c38dfd96c172a904ea44f24b32faf332369",
+  "version": "0.9.1",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/jmc/main/jm-reader-v0.9.1.apk",
+  "notes": "JM Reader 0.9.1 交互与视觉对标 PiKA（第 11 轮）：\n1. 底栏全新视觉：选中实心/未选中描边双态图标、胶囊指示、11sp 标签\n2. 网格自适应间距：两列大封面配大边距，三列收窄，视觉重量更均衡（网格与骨架共用）\n3. 首页三区头升级双行文案：关注更新/人气榜单/随便看看均配副标题，关注区头显示「有更新」徽标\n4. 搜索页新增大标题与 DISCOVER 装饰标，搜索框内新增「搜索」提交按钮（与键盘搜索同路径）\n5. 我的页新增 MY COLLECTION 装饰标\n6. 详情推荐标题改为「你可能也喜欢」\n7. 全局形状体系统一（6/10/14/18/24dp 圆角）、字阶与 pika 对齐（正文 14sp、辅助字 Medium）\n8. 深色模式与字体 1.3 全量实测无裁切；单测 221/221 + code-health 门禁通过；业务逻辑零改动"
 }
